@@ -26,41 +26,26 @@ export async function GET(req: NextRequest) {
   try {
     const backend = getBackendSupabaseClient();
 
-    // 1. Validate state in oauth_states table
-    const { data: stateRecord, error: stateErr } = await backend
+    // 1. Atomic OAuth state consumption: single atomic DELETE ... RETURNING * query
+    const { data: consumedState, error: stateErr } = await backend
       .from('oauth_states')
-      .select('*')
+      .delete()
       .eq('state_hash', state)
+      .gt('expires_at', new Date().toISOString())
+      .select()
       .single();
 
-    if (stateErr || !stateRecord) {
-      console.error('Invalid or non-existent OAuth state received:', state);
+    if (stateErr || !consumedState) {
+      console.error('Invalid, expired, or already-consumed OAuth state received:', state);
       return NextResponse.redirect(new URL('/dashboard/integrations?error=invalid_state', req.url));
     }
 
-    if (new Date(stateRecord.expires_at) < new Date()) {
-      console.error('Expired OAuth state received');
-      await backend.from('oauth_states').delete().eq('id', stateRecord.id);
-      return NextResponse.redirect(new URL('/dashboard/integrations?error=state_expired', req.url));
-    }
-
-    const tenantId = stateRecord.tenant_id;
-    const grantedScopes = stateRecord.scopes || [
+    const tenantId = consumedState.tenant_id;
+    const grantedScopes = consumedState.scopes || [
       'instagram_business_basic',
       'instagram_business_manage_messages',
       'instagram_business_manage_comments',
     ];
-
-    // 2. Consume/Delete state record atomically to prevent replay attacks
-    const { error: deleteErr } = await backend
-      .from('oauth_states')
-      .delete()
-      .eq('id', stateRecord.id);
-
-    if (deleteErr) {
-      console.error('Failed to consume OAuth state:', deleteErr);
-      return NextResponse.redirect(new URL('/dashboard/integrations?error=state_consumption_failed', req.url));
-    }
 
     const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
     const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
@@ -74,7 +59,7 @@ export async function GET(req: NextRequest) {
     let accountName = 'Instagram Professional Account';
     let expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // Default 60 days
 
-    // 3. Exchange authorization code server-side if Instagram API credentials configured
+    // 2. Exchange authorization code server-side if Instagram API credentials configured
     if (appId && appSecret) {
       // Step A: Short-lived access token exchange via api.instagram.com
       const tokenBody = new URLSearchParams({
@@ -132,10 +117,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 4. Encrypt access token using AES-256-GCM before database storage
+    // 3. Encrypt access token using AES-256-GCM before database storage
     const encryptedToken = encryptToken(accessToken);
 
-    // 5. Upsert connection record strictly linked to tenantId
+    // 4. Upsert connection record strictly linked to tenantId
     await backend
       .from('platform_connections')
       .upsert({
@@ -151,7 +136,7 @@ export async function GET(req: NextRequest) {
         updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,platform,account_id' });
 
-    // 6. Record Audit Log
+    // 5. Record Audit Log
     await db.addAuditLog({
       tenant_id: tenantId,
       event_type: 'INSTAGRAM_LOGIN_CONNECTED',

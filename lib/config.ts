@@ -17,6 +17,7 @@ export interface AppConfig {
   instagramAppSecret?: string;
   instagramWebhookVerifyToken: string;
   instagramOAuthRedirectUri: string;
+  instagramGraphApiVersion: string;
   metaAppId?: string;
   metaAppSecret?: string;
   metaWebhookVerifyToken: string;
@@ -37,6 +38,7 @@ export function validateEnvironment(): AppConfig {
   const instagramAppId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
   const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
   const instagramOAuthRedirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || process.env.META_OAUTH_REDIRECT_URI || `${appUrl}/api/auth/instagram/callback`;
+  const instagramGraphApiVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v20.0';
 
   if (!supabaseUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL');
   if (!supabaseAnonKey) missingVars.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
@@ -64,11 +66,13 @@ export function validateEnvironment(): AppConfig {
     instagramAppSecret,
     instagramWebhookVerifyToken,
     instagramOAuthRedirectUri,
+    instagramGraphApiVersion,
     metaAppId: instagramAppId,
     metaAppSecret: instagramAppSecret,
     metaWebhookVerifyToken: instagramWebhookVerifyToken,
     metaOAuthRedirectUri: instagramOAuthRedirectUri,
-    metaGraphApiVersion: process.env.META_GRAPH_API_VERSION || 'v20.0',
+    metaGraphApiVersion: instagramGraphApiVersion,
   };
 }
+
 

@@ -4,11 +4,13 @@ import { verifyMetaSignature } from '../security/signatures';
 export class InstagramConnector implements PlatformConnector {
   platform: 'instagram' = 'instagram';
   private appSecret: string;
-  private apiVersion = 'v20.0';
+  private apiVersion: string;
 
   constructor(appSecret?: string) {
     this.appSecret = appSecret || process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || '';
+    this.apiVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v20.0';
   }
+
 
   verifySignature(rawBody: string | Buffer, signatureHeader: string | null): boolean {
     return verifyMetaSignature(rawBody, signatureHeader, this.appSecret);

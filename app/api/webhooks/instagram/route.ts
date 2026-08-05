@@ -3,10 +3,12 @@ import { verifyMetaWebhookChallenge } from '@/lib/security/signatures';
 import { InstagramConnector } from '@/lib/connectors/instagram';
 import { generateAIReply } from '@/lib/ai/engine';
 import { db } from '@/lib/db/store';
+import { getBackendSupabaseClient } from '@/lib/db/client';
 import { sanitizeInput } from '@/lib/security/signatures';
 import { decryptToken } from '@/lib/security/encryption';
 
 const connector = new InstagramConnector();
+
 
 /**
  * GET Handler for Instagram Webhook verification challenge
@@ -83,7 +85,23 @@ export async function POST(req: NextRequest) {
       const authoritativeTenantId = targetConn.tenant_id;
       const decryptedToken = decryptToken(targetConn.access_token_encrypted);
 
+      // Concrete Database-level Webhook Idempotency Check
+      const backend = getBackendSupabaseClient();
+      const { error: idempotencyErr } = await backend
+        .from('processed_webhook_events')
+        .insert({
+          tenant_id: authoritativeTenantId,
+          platform: 'instagram',
+          event_id: event.externalId,
+        });
+
+      if (idempotencyErr && (idempotencyErr.code === '23505' || idempotencyErr.message?.includes('unique constraint'))) {
+        console.log(`[Idempotency] Skipping duplicate webhook event: ${event.externalId} for tenant: ${authoritativeTenantId}`);
+        continue;
+      }
+
       const kb = await db.getKnowledgeBase(authoritativeTenantId);
+
       const menu = await db.getMenu(authoritativeTenantId);
       const rules = await db.getAutomationRules(authoritativeTenantId);
 
