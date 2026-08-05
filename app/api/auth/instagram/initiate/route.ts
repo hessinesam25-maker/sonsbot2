@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/db/supabase-ssr';
 import { getBackendSupabaseClient } from '@/lib/db/client';
 import crypto from 'crypto';
 
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
 
     const backend = getBackendSupabaseClient();
 
-    // 1. Verify tenant exists and is active
+    // 1. Verify target tenant exists and is active
     const { data: tenant, error: tenantErr } = await backend
       .from('tenants')
       .select('id, name, is_active')
@@ -26,59 +27,48 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid or non-existent tenant ID' }, { status: 404 });
     }
 
-    // 2. Real server-side session authentication
-    const authHeader = req.headers.get('Authorization');
-    let token: string | null = null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    } else {
-      token = req.cookies.get('sb-access-token')?.value || 
-              req.cookies.get('supabase-auth-token')?.value || 
-              null;
-    }
+    // 2. Real Server-Side Cookie Session Authentication via @supabase/ssr
+    const ssrClient = createServerSupabaseClient(req);
+    const { data: { user }, error: authErr } = await ssrClient.auth.getUser();
 
     let authenticatedUserId: string | null = null;
     let isAuthorized = false;
 
-    if (token) {
-      const { data: { user }, error: authErr } = await backend.auth.getUser(token);
-      if (user && !authErr) {
-        authenticatedUserId = user.id;
+    if (user && !authErr) {
+      authenticatedUserId = user.id;
 
-        // Check if user is a Platform Admin
-        const { data: adminCheck } = await backend
-          .from('platform_admins')
+      // Verify authenticated user's ID exists in public.platform_admins.auth_user_id
+      const { data: adminCheck } = await backend
+        .from('platform_admins')
+        .select('id')
+        .eq('auth_user_id', user.id)
+        .single();
+
+      if (adminCheck) {
+        isAuthorized = true;
+      } else {
+        // Or check if user belongs to target tenant
+        const { data: tenantUserCheck } = await backend
+          .from('users')
           .select('id')
           .eq('auth_user_id', user.id)
+          .eq('tenant_id', tenantId)
           .single();
 
-        if (adminCheck) {
+        if (tenantUserCheck) {
           isAuthorized = true;
-        } else {
-          // Check if user belongs to target tenant
-          const { data: tenantUserCheck } = await backend
-            .from('users')
-            .select('id')
-            .eq('auth_user_id', user.id)
-            .eq('tenant_id', tenantId)
-            .single();
-
-          if (tenantUserCheck) {
-            isAuthorized = true;
-          }
         }
-      } else if (token.startsWith('test_') || process.env.NODE_ENV === 'test') {
-        // Test environment bypass for unit test execution
+      }
+    } else if (process.env.NODE_ENV === 'test') {
+      // Test suite bypass for Vitest test execution
+      const testHeader = req.headers.get('Authorization');
+      if (testHeader && testHeader.startsWith('Bearer test_')) {
         authenticatedUserId = '00000000-0000-0000-0000-000000000000';
         isAuthorized = true;
       }
-    } else if (process.env.NODE_ENV === 'test') {
-      // Vitest test runner mode support
-      authenticatedUserId = '00000000-0000-0000-0000-000000000000';
-      isAuthorized = true;
     }
 
-    if (!isAuthorized) {
+    if (!isAuthorized || !authenticatedUserId) {
       return NextResponse.json({ 
         error: 'Unauthorized: Valid server-side session required to connect Instagram account.' 
       }, { status: 401 });
@@ -99,7 +89,7 @@ export async function GET(req: NextRequest) {
       scopesList.push('instagram_business_content_publish');
     }
 
-    // 4. Store state record server-side in oauth_states
+    // 4. Store state record server-side in oauth_states bound to user_id
     const stateRecord: Record<string, any> = {
       tenant_id: tenantId,
       platform: 'instagram',

@@ -75,3 +75,23 @@ While the Meta App status is in **Development Mode**:
 ## 7. Professional Account Requirement
 
 The restaurant owner's Instagram account **must be an Instagram Professional account** (either **Business** or **Creator**). Personal Instagram accounts are not supported by the Meta Graph API for automated messaging and comment replies.
+
+---
+
+## 8. Platform Admin Verification SQL
+
+To verify that an authenticated Supabase user account (`auth.users`) is properly mapped and authorized as a platform administrator (`public.platform_admins`), run the following SQL query in your Supabase SQL Editor:
+
+```sql
+select
+  pa.auth_user_id,
+  pa.email,
+  au.email as auth_email
+from public.platform_admins pa
+left join auth.users au
+  on au.id = pa.auth_user_id;
+```
+
+> [!NOTE]
+> Authorization requires a valid foreign key mapping from `public.platform_admins.auth_user_id` to `auth.users.id`. Users are not authorized by email alone.
+

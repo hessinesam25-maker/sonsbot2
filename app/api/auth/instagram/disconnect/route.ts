@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/db/supabase-ssr';
 import { getBackendSupabaseClient } from '@/lib/db/client';
 import { db } from '@/lib/db/store';
 
@@ -15,49 +16,40 @@ export async function POST(req: NextRequest) {
 
     const backend = getBackendSupabaseClient();
 
-    // 1. Real server-side session authentication
-    const authHeader = req.headers.get('Authorization');
-    let token: string | null = null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    } else {
-      token = req.cookies.get('sb-access-token')?.value || 
-              req.cookies.get('supabase-auth-token')?.value || 
-              null;
-    }
+    // 1. Real server-side session cookie authentication via @supabase/ssr
+    const ssrClient = createServerSupabaseClient(req);
+    const { data: { user }, error: authErr } = await ssrClient.auth.getUser();
 
     let isAuthorized = false;
 
-    if (token) {
-      const { data: { user }, error: authErr } = await backend.auth.getUser(token);
-      if (user && !authErr) {
-        // Check Platform Admin permission
-        const { data: adminCheck } = await backend
-          .from('platform_admins')
-          .select('id')
+    if (user && !authErr) {
+      // Check Platform Admin permission by auth_user_id
+      const { data: adminCheck } = await backend
+        .from('platform_admins')
+        .select('id')
+        .eq('auth_user_id', user.id)
+        .single();
+
+      if (adminCheck) {
+        isAuthorized = true;
+      } else {
+        // Check tenant user permission (owner or manager role)
+        const { data: tenantUserCheck } = await backend
+          .from('users')
+          .select('id, role')
           .eq('auth_user_id', user.id)
+          .eq('tenant_id', tenant_id)
           .single();
 
-        if (adminCheck) {
+        if (tenantUserCheck && (tenantUserCheck.role === 'owner' || tenantUserCheck.role === 'manager')) {
           isAuthorized = true;
-        } else {
-          // Check tenant user permission (owner or manager role)
-          const { data: tenantUserCheck } = await backend
-            .from('users')
-            .select('id, role')
-            .eq('auth_user_id', user.id)
-            .eq('tenant_id', tenant_id)
-            .single();
-
-          if (tenantUserCheck && (tenantUserCheck.role === 'owner' || tenantUserCheck.role === 'manager')) {
-            isAuthorized = true;
-          }
         }
-      } else if (token.startsWith('test_') || process.env.NODE_ENV === 'test') {
-        isAuthorized = true;
       }
     } else if (process.env.NODE_ENV === 'test') {
-      isAuthorized = true;
+      const testHeader = req.headers.get('Authorization');
+      if (testHeader && testHeader.startsWith('Bearer test_')) {
+        isAuthorized = true;
+      }
     }
 
     if (!isAuthorized) {

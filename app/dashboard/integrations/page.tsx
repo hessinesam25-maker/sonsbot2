@@ -54,7 +54,10 @@ export default function IntegrationsPage() {
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      const res = await fetch(`/api/auth/instagram/initiate?tenant_id=${selectedTenantId}`);
+      const res = await fetch(`/api/auth/instagram/initiate?tenant_id=${selectedTenantId}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
@@ -77,21 +80,26 @@ export default function IntegrationsPage() {
 
     setDisconnecting(true);
     try {
-      await db.updateConnection(igConnection.id, { is_active: false });
-      const updated = await db.getConnections(selectedTenantId);
-      setConnections(updated);
-      await db.addAuditLog({
-        tenant_id: selectedTenantId,
-        event_type: 'INSTAGRAM_DISCONNECTED',
-        actor_type: 'user',
-        details: { platform: 'instagram', account_id: igConnection.account_id },
+      const res = await fetch('/api/auth/instagram/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ tenant_id: selectedTenantId }),
       });
+      const data = await res.json();
+      if (data.success) {
+        const updated = await db.getConnections(selectedTenantId);
+        setConnections(updated);
+      } else {
+        alert(`Error disconnecting Instagram: ${data.error}`);
+      }
     } catch (err: any) {
       alert(`Error disconnecting Instagram: ${err.message}`);
     } finally {
       setDisconnecting(false);
     }
   };
+
 
   return (
     <div>

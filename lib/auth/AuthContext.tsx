@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, UserRole, Tenant, PlatformAdmin } from '@/lib/db/types';
+import { User, Tenant, PlatformAdmin } from '@/lib/db/types';
 import { supabaseFrontend } from '@/lib/db/client';
 import { db } from '@/lib/db/store';
 
@@ -50,24 +50,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsPlatformAdmin(false);
   };
 
-  const verifyPlatformAdmin = async (userId?: string, userEmail?: string) => {
-    setIsLoading(true);
+  const verifyPlatformAdmin = async (userId: string) => {
     try {
-      if (!userId && !userEmail) {
+      if (!userId) {
         clearState();
         return false;
       }
 
-      let query = supabaseFrontend.from('platform_admins').select('*');
-      if (userId) {
-        query = query.eq('auth_user_id', userId);
-      } else if (userEmail) {
-        query = query.eq('email', userEmail);
-      }
+      // Query platform_admins strictly by auth_user_id = user.id
+      const { data: adminData, error } = await supabaseFrontend
+        .from('platform_admins')
+        .select('*')
+        .eq('auth_user_id', userId)
+        .single();
 
-      const { data: adminData, error } = await query.single();
-
-      if (adminData) {
+      if (adminData && !error) {
         setAdminProfile(adminData);
         setIsPlatformAdmin(true);
         setRole('admin');
@@ -76,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           tenant_id: selectedTenantId,
           email: adminData.email,
           name: adminData.name,
-          role: 'owner', // Default role type compatibility
+          role: 'owner',
           created_at: adminData.created_at,
         });
 
@@ -84,33 +81,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTenant(activeTenant);
         return true;
       } else {
-        // User authenticated in Supabase Auth but NOT a platform_admin -> REJECT ACCESS
-        console.warn(`User ${userEmail || userId} is not registered in public.platform_admins.`);
+        // Authenticated in Supabase Auth but NOT listed in public.platform_admins -> REJECT ACCESS
+        console.warn(`User ${userId} is not registered in public.platform_admins.auth_user_id.`);
         await supabaseFrontend.auth.signOut();
         clearState();
         return false;
       }
     } catch (err) {
-      console.error('Error verifying platform admin session:', err);
+      console.error('Error verifying platform admin authorization:', err);
       clearState();
       return false;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     const initSession = async () => {
       try {
-        const { data: { session } } = await supabaseFrontend.auth.getSession();
-        if (session?.user) {
-          await verifyPlatformAdmin(session.user.id, session.user.email);
-        } else {
-          setIsLoading(false);
+        const { data: { user: activeUser } } = await supabaseFrontend.auth.getUser();
+        if (activeUser && isMounted) {
+          await verifyPlatformAdmin(activeUser.id);
+        } else if (isMounted) {
+          clearState();
         }
       } catch (err) {
-        console.error('Session init error:', err);
-        setIsLoading(false);
+        console.error('Session initialization error:', err);
+        if (isMounted) clearState();
+      } finally {
+        if (isMounted) setIsLoading(false);
       }
     };
 
@@ -118,14 +117,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const { data: { subscription } } = supabaseFrontend.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
-        await verifyPlatformAdmin(session.user.id, session.user.email);
+        await verifyPlatformAdmin(session.user.id);
       } else {
         clearState();
-        setIsLoading(false);
       }
+      if (isMounted) setIsLoading(false);
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -137,49 +137,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'Email and password are required.' };
       }
 
+      // Real Supabase Authentication
       const { data: authData, error: authError } = await supabaseFrontend.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (authError) {
-        // Dev / local mode check if database has platform admin with matching email
-        const { data: adminCheck } = await supabaseFrontend
-          .from('platform_admins')
-          .select('*')
-          .eq('email', email)
-          .single();
-
-        if (adminCheck) {
-          setAdminProfile(adminCheck);
-          setIsPlatformAdmin(true);
-          setRole('admin');
-          setUser({
-            id: adminCheck.id,
-            tenant_id: selectedTenantId,
-            email: adminCheck.email,
-            name: adminCheck.name,
-            role: 'owner',
-            created_at: adminCheck.created_at,
-          });
-          const activeTenant = await db.getTenant(selectedTenantId);
-          setTenant(activeTenant);
-          return { success: true };
-        }
-
-        return { success: false, error: authError.message || 'Invalid email or password.' };
+      if (authError || !authData?.user) {
+        clearState();
+        return { success: false, error: authError?.message || 'Invalid email or password.' };
       }
 
-      if (authData?.user) {
-        const isAdmin = await verifyPlatformAdmin(authData.user.id, authData.user.email);
-        if (!isAdmin) {
-          return { success: false, error: 'Access Denied: Only Platform Administrators can log in.' };
-        }
-        return { success: true };
+      // Server-side database verification: auth_user_id must match auth.users.id
+      const isAuthorized = await verifyPlatformAdmin(authData.user.id);
+      if (!isAuthorized) {
+        return { success: false, error: 'Access Denied: You do not have platform administrator access.' };
       }
 
-      return { success: false, error: 'Authentication failed.' };
+      return { success: true };
     } catch (err: any) {
+      clearState();
       return { success: false, error: err.message || 'Login failed.' };
     } finally {
       setIsLoading(false);
@@ -197,8 +174,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await supabaseFrontend.auth.signOut();
-    clearState();
+    setIsLoading(true);
+    try {
+      await supabaseFrontend.auth.signOut();
+    } finally {
+      clearState();
+      setIsLoading(false);
+    }
   };
 
   return (

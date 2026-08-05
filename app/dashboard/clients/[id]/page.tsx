@@ -68,9 +68,19 @@ export default function RestaurantDetailsPage() {
 
       setConnectingIg(true);
       try {
-        await db.updateConnection(activeIgConn.id, { is_active: false });
-        const conns = await db.getConnections(tenantId);
-        setConnections(conns);
+        const res = await fetch('/api/auth/instagram/disconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ tenant_id: tenantId }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          const conns = await db.getConnections(tenantId);
+          setConnections(conns);
+        } else {
+          alert(`Error disconnecting Instagram: ${data.error}`);
+        }
       } catch (err: any) {
         alert(`Error disconnecting Instagram: ${err.message}`);
       } finally {
@@ -81,7 +91,10 @@ export default function RestaurantDetailsPage() {
 
     setConnectingIg(true);
     try {
-      const res = await fetch(`/api/auth/instagram/initiate?tenant_id=${tenantId}`);
+      const res = await fetch(`/api/auth/instagram/initiate?tenant_id=${tenantId}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
       const data = await res.json();
 
       if (data.url) {
@@ -95,6 +108,7 @@ export default function RestaurantDetailsPage() {
       setConnectingIg(false);
     }
   };
+
 
 
   const handleSwitchToThisTenant = async () => {
