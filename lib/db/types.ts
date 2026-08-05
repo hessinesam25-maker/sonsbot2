@@ -115,9 +115,13 @@ export interface OAuthState {
   tenant_id: string;
   platform: 'instagram' | 'google' | 'tiktok';
   state_hash: string;
+  user_id?: string;
+  nonce?: string;
+  scopes?: string[];
   expires_at: string;
   created_at: string;
 }
+
 
 
 export interface User {

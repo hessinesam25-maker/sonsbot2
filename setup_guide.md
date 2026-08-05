@@ -1,6 +1,6 @@
 # Ghent Café AI Platform - Setup & Deployment Guide
 
-This guide provides step-by-step instructions for setting up the production Meta Developer App (Instagram Graph API), configuring webhooks, setting up environment variables, and enabling the TikTok connector framework.
+This guide provides step-by-step instructions for setting up the production Meta Developer App (Instagram API with Instagram Login), configuring webhooks, setting up environment variables, and enabling the TikTok connector framework.
 
 ---
 
@@ -11,7 +11,7 @@ Create a `.env.local` or `.env` file in the root of your project using the struc
 ```env
 # Application Environment Variables
 NEXT_PUBLIC_APP_URL=https://your-domain.com
-NEXT_PUBLIC_TENANT_NAME="Café De Gentse Draak"
+NEXT_PUBLIC_APP_NAME="Restaurant Social Platform"
 NEXT_PUBLIC_DEFAULT_LOCALE="nl"
 
 # Database & Supabase Configuration
@@ -21,12 +21,20 @@ SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 DATABASE_URL=postgresql://postgres:password@localhost:5432/ghent_cafe_db
 
 # Security Keys
-ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef # 32-byte (64 hex characters) AES-256-GCM key
+TOKEN_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef # 32-byte (64 hex characters) AES-256-GCM key
+ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
-# Meta / Instagram Graph API Configuration
-META_APP_ID=123456789012345
-META_APP_SECRET=your_meta_app_secret_hash
+# Instagram API with Instagram Login (Preferred)
+INSTAGRAM_APP_ID=your_instagram_app_id
+INSTAGRAM_APP_SECRET=your_instagram_app_secret
+INSTAGRAM_WEBHOOK_VERIFY_TOKEN=ghent_cafe_secure_webhook_verify_token_2026
+INSTAGRAM_OAUTH_REDIRECT_URI=https://your-domain.com/api/auth/instagram/callback
+
+# Legacy Meta Fallbacks (Backwards compatible)
+META_APP_ID=your_meta_app_id
+META_APP_SECRET=your_meta_app_secret
 META_WEBHOOK_VERIFY_TOKEN=ghent_cafe_secure_webhook_verify_token_2026
+META_OAUTH_REDIRECT_URI=https://your-domain.com/api/auth/instagram/callback
 
 # AI Provider Configuration (Pluggable LLM Abstraction)
 AI_PROVIDER=openai # openai | gemini | mock
@@ -41,42 +49,36 @@ TIKTOK_WEBHOOK_VERIFY_TOKEN=tiktok_verify_token_2026
 
 ---
 
-## 2. Meta Developer App Configuration (Instagram Official Integration)
+## 2. Meta Developer App Configuration (Instagram API with Instagram Login)
 
 ### Step 1: Create Meta Developer App
-1. Go to [Meta for Developers](https://developers.facebook.com/) and log in with your Facebook account.
+1. Go to [Meta for Developers](https://developers.facebook.com/) and log in.
 2. Click **My Apps** -> **Create App**.
 3. Select **Business** as the app type.
-4. Set App Name to `Ghent Cafe Engagement AI` and enter your business email.
+4. Set App Name to `Restaurant Social Platform` and enter your contact email.
 
-### Step 2: Add Products to Meta App
-Add the following products to your Meta App dashboard:
-- **Instagram Graph API**
-- **Webhooks**
-- **Facebook Login for Business**
+### Step 2: Add Instagram Product
+1. Under **Add Products**, select **Instagram**.
+2. Choose **Instagram API with Instagram Login**.
+3. Do NOT configure Facebook Login or Facebook Page access tokens.
 
-### Step 3: Configure Required Permissions & OAuth
-In **Facebook Login for Business** settings:
-1. Set **Valid OAuth Redirect URIs** to:
+### Step 3: Configure Authorized Redirect URIs & Scopes
+1. In **Instagram Settings** -> **OAuth Settings**, set **Valid OAuth Redirect URIs** to:
    `https://your-domain.com/api/auth/instagram/callback`
-2. Request and authorize the following official permissions:
-   - `instagram_basic`
-   - `instagram_manage_messages`
-   - `instagram_manage_comments`
-   - `pages_messaging`
-   - `pages_show_list`
+2. Request and authorize the modern Instagram Login scopes:
+   - `instagram_business_basic`
+   - `instagram_business_manage_messages`
+   - `instagram_business_manage_comments`
+   - `instagram_business_content_publish` (if publishing enabled)
 
 ### Step 4: Webhook Configuration
 1. In Meta Developer Dashboard, navigate to **Webhooks** -> Select **Instagram** from the dropdown.
-2. Click **Subscribe to this object**.
-3. Set **Callback URL** to:
+2. Set **Callback URL** to:
    `https://your-domain.com/api/webhooks/instagram`
-4. Set **Verify Token** to the exact value configured in `META_WEBHOOK_VERIFY_TOKEN` (e.g. `ghent_cafe_secure_webhook_verify_token_2026`).
-5. Click **Verify and Save**.
-6. Subscribe to the following webhook fields:
+3. Set **Verify Token** to `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`.
+4. Subscribe to the following webhook fields:
    - `messages`
    - `comments`
-   - `messaging_postbacks`
 
 ---
 
@@ -85,19 +87,14 @@ In **Facebook Login for Business** settings:
 1. Access [TikTok for Developers](https://developers.tiktok.com/) and register a Business Application.
 2. Apply for the official **TikTok Business Messaging API**.
 3. Once approved, copy your `TIKTOK_APP_ID` and `TIKTOK_APP_SECRET` into `.env.local`.
-4. In the Ghent Café Admin Dashboard, navigate to **Integrations** -> **TikTok Business Messaging** to verify the connector status.
-> Note: No unofficial browser automation, web scraping, cookie sharing, or mobile emulation is used. The connector interface is ready to process official webhooks as soon as credentials are entered.
+4. In the Restaurant Admin Dashboard, navigate to **Integrations** -> **TikTok Business Messaging** to verify the connector status.
 
 ---
 
 ## 4. Database Migration Setup
 
-Run the SQL migration script located at:
-`supabase/migrations/20260730000000_init_schema.sql`
-
-This script creates:
-- `tenants`, `users`, `platform_connections` (with AES-256-GCM token encryption)
-- `knowledge_base` & `menu_items`
-- `conversations`, `messages`, `comments`
-- `automation_rules` & `audit_logs`
-- Multi-tenant Row Level Security (RLS) policies
+Run the SQL migration scripts located at:
+- `supabase/migrations/20260730000000_init_schema.sql`
+- `supabase/migrations/20260730000001_auth_bound_rls.sql`
+- `supabase/migrations/20260804000000_multi_tenant_admin.sql`
+- `supabase/migrations/20260805000000_instagram_login_oauth_states.sql`

@@ -13,6 +13,10 @@ export interface AppConfig {
   aiProvider: 'openai' | 'gemini' | 'mock';
   openaiApiKey?: string;
   geminiApiKey?: string;
+  instagramAppId?: string;
+  instagramAppSecret?: string;
+  instagramWebhookVerifyToken: string;
+  instagramOAuthRedirectUri: string;
   metaAppId?: string;
   metaAppSecret?: string;
   metaWebhookVerifyToken: string;
@@ -29,7 +33,10 @@ export function validateEnvironment(): AppConfig {
 
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const encryptionKey = process.env.TOKEN_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY;
-  const metaWebhookVerifyToken = process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
+  const instagramWebhookVerifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
+  const instagramAppId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
+  const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
+  const instagramOAuthRedirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || process.env.META_OAUTH_REDIRECT_URI || `${appUrl}/api/auth/instagram/callback`;
 
   if (!supabaseUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL');
   if (!supabaseAnonKey) missingVars.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
@@ -53,10 +60,15 @@ export function validateEnvironment(): AppConfig {
     aiProvider,
     openaiApiKey: process.env.OPENAI_API_KEY || process.env.AI_API_KEY,
     geminiApiKey: process.env.GEMINI_API_KEY,
-    metaAppId: process.env.META_APP_ID,
-    metaAppSecret: process.env.META_APP_SECRET,
-    metaWebhookVerifyToken,
-    metaOAuthRedirectUri: process.env.META_OAUTH_REDIRECT_URI || `${appUrl}/api/auth/instagram/callback`,
-    metaGraphApiVersion: process.env.META_GRAPH_API_VERSION || 'v19.0',
+    instagramAppId,
+    instagramAppSecret,
+    instagramWebhookVerifyToken,
+    instagramOAuthRedirectUri,
+    metaAppId: instagramAppId,
+    metaAppSecret: instagramAppSecret,
+    metaWebhookVerifyToken: instagramWebhookVerifyToken,
+    metaOAuthRedirectUri: instagramOAuthRedirectUri,
+    metaGraphApiVersion: process.env.META_GRAPH_API_VERSION || 'v20.0',
   };
 }
+

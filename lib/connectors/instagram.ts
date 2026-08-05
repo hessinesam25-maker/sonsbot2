@@ -4,10 +4,10 @@ import { verifyMetaSignature } from '../security/signatures';
 export class InstagramConnector implements PlatformConnector {
   platform: 'instagram' = 'instagram';
   private appSecret: string;
-  private apiVersion = 'v19.0';
+  private apiVersion = 'v20.0';
 
   constructor(appSecret?: string) {
-    this.appSecret = appSecret || process.env.META_APP_SECRET || '';
+    this.appSecret = appSecret || process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || '';
   }
 
   verifySignature(rawBody: string | Buffer, signatureHeader: string | null): boolean {
@@ -64,11 +64,40 @@ export class InstagramConnector implements PlatformConnector {
     return events;
   }
 
-  async sendDirectMessage(options: SendMessageOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    const url = `https://graph.facebook.com/${this.apiVersion}/me/messages`;
+  /**
+   * Refresh long-lived Instagram User Access Token via graph.instagram.com
+   * Officially supported long-lived token refresh mechanism
+   */
+  async refreshLongLivedToken(currentAccessToken: string): Promise<{ success: boolean; accessToken?: string; expiresIn?: number; error?: string }> {
+    const url = `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${currentAccessToken}`;
 
     try {
-      // If no valid Meta API token is set, mock successful response in dev mode
+      if (!currentAccessToken || currentAccessToken.includes('mock')) {
+        return { success: true, accessToken: currentAccessToken, expiresIn: 5184000 };
+      }
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!res.ok || !data.access_token) {
+        return { success: false, error: data.error?.message || 'Token refresh failed' };
+      }
+
+      return {
+        success: true,
+        accessToken: data.access_token,
+        expiresIn: data.expires_in || 5184000,
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error during token refresh' };
+    }
+  }
+
+  async sendDirectMessage(options: SendMessageOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    const url = `https://graph.instagram.com/${this.apiVersion}/me/messages`;
+
+    try {
+      // If no valid API token is set, mock successful response in dev mode
       if (!options.accessToken || options.accessToken.includes('mock')) {
         console.log(`[InstagramConnector] Mock DM sent to ${options.recipientId}: ${options.content}`);
         return { success: true, messageId: `mock_ig_msg_${Date.now()}` };
@@ -88,7 +117,7 @@ export class InstagramConnector implements PlatformConnector {
 
       const data = await res.json();
       if (!res.ok) {
-        return { success: false, error: data.error?.message || 'Meta API request failed' };
+        return { success: false, error: data.error?.message || 'Instagram Graph API request failed' };
       }
 
       return { success: true, messageId: data.message_id };
@@ -98,7 +127,7 @@ export class InstagramConnector implements PlatformConnector {
   }
 
   async sendCommentReply(options: SendCommentReplyOptions): Promise<{ success: boolean; replyId?: string; error?: string }> {
-    const url = `https://graph.facebook.com/${this.apiVersion}/${options.commentId}/replies`;
+    const url = `https://graph.instagram.com/${this.apiVersion}/${options.commentId}/replies`;
 
     try {
       if (!options.accessToken || options.accessToken.includes('mock')) {
@@ -119,7 +148,7 @@ export class InstagramConnector implements PlatformConnector {
 
       const data = await res.json();
       if (!res.ok) {
-        return { success: false, error: data.error?.message || 'Meta API comment reply failed' };
+        return { success: false, error: data.error?.message || 'Instagram Graph API comment reply failed' };
       }
 
       return { success: true, replyId: data.id };

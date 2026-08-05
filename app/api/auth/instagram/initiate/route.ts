@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
 
     const backend = getBackendSupabaseClient();
 
-    // 1. Verify tenant exists
+    // 1. Verify tenant exists and is active
     const { data: tenant, error: tenantErr } = await backend
       .from('tenants')
       .select('id, name')
@@ -26,41 +26,73 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid or non-existent tenant ID' }, { status: 404 });
     }
 
-    // 2. Generate cryptographically secure state hash
-    const stateToken = crypto.randomUUID();
+    // 2. Authenticate requester if Authorization header is provided
+    let userId: string | undefined = undefined;
+    const authHeader = req.headers.get('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const { data: { user } } = await backend.auth.getUser(token);
+      if (user) {
+        userId = user.id;
+      }
+    }
+
+    // 3. Generate cryptographically secure state hash and nonce
+    const stateToken = crypto.randomBytes(32).toString('hex');
+    const nonce = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
 
-    // 3. Store state in oauth_states
+    const scopesList = [
+      'instagram_business_basic',
+      'instagram_business_manage_messages',
+      'instagram_business_manage_comments',
+    ];
+
+    if (searchParams.get('enable_publishing') === 'true') {
+      scopesList.push('instagram_business_content_publish');
+    }
+
+    // 4. Store state in oauth_states table
+    const stateRecord: Record<string, any> = {
+      tenant_id: tenantId,
+      platform: 'instagram',
+      state_hash: stateToken,
+      nonce: nonce,
+      scopes: scopesList,
+      expires_at: expiresAt,
+    };
+
+    if (userId) {
+      stateRecord.user_id = userId;
+    }
+
     const { error: stateErr } = await backend
       .from('oauth_states')
-      .insert({
-        tenant_id: tenantId,
-        platform: 'instagram',
-        state_hash: stateToken,
-        expires_at: expiresAt,
-      });
+      .insert(stateRecord);
 
     if (stateErr) {
       console.error('Failed to store OAuth state:', stateErr);
       return NextResponse.json({ error: 'Failed to generate secure OAuth state' }, { status: 500 });
     }
 
-    // 4. Construct official Meta Authorization URL
-    const appId = process.env.META_APP_ID || '8910237491023';
-    const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/instagram/callback`;
-    const scopes = [
-      'instagram_basic',
-      'instagram_manage_messages',
-      'instagram_manage_comments',
-      'pages_manage_metadata',
-      'pages_read_engagement'
-    ].join(',');
+    // 5. Construct official Instagram API with Instagram Login Authorization URL
+    const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || '8910237491023';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const redirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || 
+                        process.env.META_OAUTH_REDIRECT_URI || 
+                        `${baseUrl}/api/auth/instagram/callback`;
 
-    const metaAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${stateToken}`;
+    const scopesStr = scopesList.join(',');
 
-    return NextResponse.json({ url: metaAuthUrl, state: stateToken, tenant_id: tenantId });
+    const instagramAuthUrl = `https://www.instagram.com/oauth/authorize?enable_fb_login=0&force_authentication=1&client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopesStr)}&response_type=code&state=${stateToken}`;
+
+    return NextResponse.json({ 
+      url: instagramAuthUrl, 
+      state: stateToken, 
+      tenant_id: tenantId 
+    });
   } catch (err: any) {
-    console.error('Meta OAuth Initiation error:', err);
+    console.error('Instagram Login OAuth Initiation error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

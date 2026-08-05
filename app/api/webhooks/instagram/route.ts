@@ -9,7 +9,7 @@ import { decryptToken } from '@/lib/security/encryption';
 const connector = new InstagramConnector();
 
 /**
- * GET Handler for Meta Webhook verification challenge
+ * GET Handler for Instagram Webhook verification challenge
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
+  const expectedToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
 
   const verification = verifyMetaWebhookChallenge(mode, token, challenge, expectedToken);
 
@@ -34,15 +34,16 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST Handler for Meta Message & Comment Webhooks
+ * POST Handler for Instagram Message & Comment Webhooks
  */
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
     const signature = req.headers.get('x-hub-signature-256');
 
-    // 1. Validate signature in production
-    if (process.env.NODE_ENV === 'production' && process.env.META_APP_SECRET) {
+    // 1. Validate HMAC signature in production
+    const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
+    if (process.env.NODE_ENV === 'production' && appSecret) {
       const isValid = connector.verifySignature(rawBody, signature);
       if (!isValid) {
         await db.addAuditLog({
@@ -57,32 +58,39 @@ export async function POST(req: NextRequest) {
     const payload = JSON.parse(rawBody);
     const events = connector.parseWebhookPayload(payload);
 
-    const connections = await db.getConnections();
-    const activeIGConn = connections.find(c => c.platform === 'instagram' && c.is_active);
+    const allConnections = await db.getConnections();
+    const igConnections = allConnections.filter(c => c.platform === 'instagram' && c.is_active);
 
-    if (!activeIGConn) {
+    if (igConnections.length === 0) {
       console.warn('Rejected webhook: No active Instagram platform connection found.');
       return NextResponse.json({ error: 'Disconnected or unknown platform account' }, { status: 403 });
     }
 
-    // Tenant is derived strictly from verified platform connection, NEVER from client payload
-    const authoritativeTenantId = activeIGConn.tenant_id;
-    const decryptedToken = decryptToken(activeIGConn.access_token_encrypted);
-
-    const kb = await db.getKnowledgeBase();
-    const menu = await db.getMenu();
-    const rules = await db.getAutomationRules();
-
     for (const event of events) {
-      // Prevent bot from replying to its own outgoing messages
-      if (event.senderId === activeIGConn.account_id) {
+      // Find exact tenant connection matching the Instagram account recipient or entry ID
+      const targetConn = igConnections.find(c => c.account_id === (event.rawPayload?.recipient?.id || event.rawPayload?.media?.owner?.id)) || igConnections[0];
+
+      if (!targetConn) {
+        console.warn(`No matching platform connection for Instagram event from ${event.senderId}`);
         continue;
       }
+
+      // Prevent bot from replying to its own outgoing messages
+      if (event.senderId === targetConn.account_id) {
+        continue;
+      }
+
+      const authoritativeTenantId = targetConn.tenant_id;
+      const decryptedToken = decryptToken(targetConn.access_token_encrypted);
+
+      const kb = await db.getKnowledgeBase(authoritativeTenantId);
+      const menu = await db.getMenu(authoritativeTenantId);
+      const rules = await db.getAutomationRules(authoritativeTenantId);
 
       const sanitizedText = sanitizeInput(event.content);
 
       if (event.eventType === 'message') {
-        let conversations = await db.getConversations();
+        let conversations = await db.getConversations(authoritativeTenantId);
 
         // Check Idempotency for DMs: ignore already-processed message ID
         let existingMessages = [];
@@ -147,12 +155,13 @@ export async function POST(req: NextRequest) {
             });
 
             await db.addAuditLog({
+              tenant_id: authoritativeTenantId,
               event_type: 'CONVERSATION_FLAGGED_HUMAN_REVIEW',
               actor_type: 'ai',
               details: { conversation_id: conv.id, reason: aiResponse.reason, confidence: aiResponse.confidenceScore },
             });
           } else {
-            // Attempt outgoing message through Meta Graph API with decrypted token
+            // Attempt outgoing message through Instagram Graph API with decrypted token
             const sendResult = await connector.sendDirectMessage({
               recipientId: conv.external_id,
               content: aiResponse.suggestedReply,
@@ -172,6 +181,7 @@ export async function POST(req: NextRequest) {
               });
 
               await db.addAuditLog({
+                tenant_id: authoritativeTenantId,
                 event_type: 'AI_AUTO_REPLY_SENT',
                 actor_type: 'ai',
                 details: { conversation_id: conv.id, language: aiResponse.detectedLanguage, confidence: aiResponse.confidenceScore },
@@ -194,16 +204,17 @@ export async function POST(req: NextRequest) {
               });
 
               await db.addAuditLog({
+                tenant_id: authoritativeTenantId,
                 event_type: 'AI_AUTO_REPLY_FAILED',
                 actor_type: 'ai',
-                details: { conversation_id: conv.id, error: sendResult.error || 'Meta API request failed' },
+                details: { conversation_id: conv.id, error: sendResult.error || 'Instagram API request failed' },
               });
             }
           }
         }
       } else if (event.eventType === 'comment') {
         // Idempotency check for comments
-        const existingComments = await db.getComments();
+        const existingComments = await db.getComments(authoritativeTenantId);
         const alreadyProcessed = existingComments.some(c => c.external_comment_id === event.externalId);
         if (alreadyProcessed) {
           console.log(`Skipping duplicate webhook comment event: ${event.externalId}`);
@@ -242,6 +253,7 @@ export async function POST(req: NextRequest) {
         });
 
         await db.addAuditLog({
+          tenant_id: authoritativeTenantId,
           event_type: 'COMMENT_PROCESSED',
           actor_type: 'webhook',
           details: { comment_id: event.externalId, classification: aiResponse.classification, auto_replied: isAutoReplied },
@@ -255,4 +267,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }
-

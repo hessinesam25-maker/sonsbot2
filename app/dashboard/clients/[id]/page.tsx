@@ -59,6 +59,26 @@ export default function RestaurantDetailsPage() {
   }, [tenantId]);
 
   const handleConnectInstagram = async () => {
+    const activeIgConn = connections.find(c => c.platform === 'instagram' && c.is_active);
+    if (activeIgConn) {
+      const confirmDisconnect = window.confirm(
+        `Are you sure you want to disconnect @${activeIgConn.account_name}? AI auto-replies will stop working for this restaurant.`
+      );
+      if (!confirmDisconnect) return;
+
+      setConnectingIg(true);
+      try {
+        await db.updateConnection(activeIgConn.id, { is_active: false });
+        const conns = await db.getConnections(tenantId);
+        setConnections(conns);
+      } catch (err: any) {
+        alert(`Error disconnecting Instagram: ${err.message}`);
+      } finally {
+        setConnectingIg(false);
+      }
+      return;
+    }
+
     setConnectingIg(true);
     try {
       const res = await fetch(`/api/auth/instagram/initiate?tenant_id=${tenantId}`);
@@ -75,6 +95,7 @@ export default function RestaurantDetailsPage() {
       setConnectingIg(false);
     }
   };
+
 
   const handleSwitchToThisTenant = async () => {
     if (tenantId) {

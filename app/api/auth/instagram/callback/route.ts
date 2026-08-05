@@ -10,9 +10,17 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
+  const errorReason = searchParams.get('error_reason');
+  const errorDescription = searchParams.get('error_description');
 
-  if (error || !code || !state) {
-    return NextResponse.redirect(new URL('/dashboard/integrations?error=oauth_cancelled', req.url));
+  if (error || errorReason || errorDescription) {
+    console.warn(`Instagram OAuth authorization denied or failed: ${error || errorReason} - ${errorDescription}`);
+    const errorCode = error === 'access_denied' ? 'oauth_cancelled' : 'oauth_denied';
+    return NextResponse.redirect(new URL(`/dashboard/integrations?error=${errorCode}`, req.url));
+  }
+
+  if (!code || !state) {
+    return NextResponse.redirect(new URL('/dashboard/integrations?error=missing_code_or_state', req.url));
   }
 
   try {
@@ -26,43 +34,108 @@ export async function GET(req: NextRequest) {
       .single();
 
     if (stateErr || !stateRecord) {
-      console.error('Invalid OAuth state received:', state);
+      console.error('Invalid or non-existent OAuth state received:', state);
       return NextResponse.redirect(new URL('/dashboard/integrations?error=invalid_state', req.url));
     }
 
     if (new Date(stateRecord.expires_at) < new Date()) {
       console.error('Expired OAuth state received');
+      await backend.from('oauth_states').delete().eq('id', stateRecord.id);
       return NextResponse.redirect(new URL('/dashboard/integrations?error=state_expired', req.url));
     }
 
     const tenantId = stateRecord.tenant_id;
+    const grantedScopes = stateRecord.scopes || [
+      'instagram_business_basic',
+      'instagram_business_manage_messages',
+      'instagram_business_manage_comments',
+    ];
 
-    // 2. Consume/Delete state record to prevent replay attacks
-    await backend.from('oauth_states').delete().eq('id', stateRecord.id);
+    // 2. Consume/Delete state record atomically to prevent replay attacks
+    const { error: deleteErr } = await backend
+      .from('oauth_states')
+      .delete()
+      .eq('id', stateRecord.id);
 
-    const appId = process.env.META_APP_ID;
-    const appSecret = process.env.META_APP_SECRET;
-    const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/auth/instagram/callback`;
+    if (deleteErr) {
+      console.error('Failed to consume OAuth state:', deleteErr);
+      return NextResponse.redirect(new URL('/dashboard/integrations?error=state_consumption_failed', req.url));
+    }
+
+    const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
+    const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const redirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || 
+                        process.env.META_OAUTH_REDIRECT_URI || 
+                        `${baseUrl}/api/auth/instagram/callback`;
 
     let accessToken = 'token_ig_auth_' + Date.now();
     let accountId = 'ig_acc_' + Date.now().toString().slice(-6);
     let accountName = 'Instagram Professional Account';
+    let expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(); // Default 60 days
 
-    // 3. Exchange authorization code server-side if live Meta API credentials configured
+    // 3. Exchange authorization code server-side if Instagram API credentials configured
     if (appId && appSecret) {
-      const tokenRes = await fetch(
-        `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`
-      );
+      // Step A: Short-lived access token exchange via api.instagram.com
+      const tokenBody = new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+        code: code,
+      });
+
+      const tokenRes = await fetch('https://api.instagram.com/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: tokenBody.toString(),
+      });
+
       const tokenData = await tokenRes.json();
-      if (tokenData.access_token) {
-        accessToken = tokenData.access_token;
+
+      if (!tokenRes.ok || !tokenData.access_token) {
+        console.error('Instagram short-lived token exchange failed:', tokenData);
+        return NextResponse.redirect(new URL('/dashboard/integrations?error=token_exchange_failed', req.url));
+      }
+
+      const shortLivedToken = tokenData.access_token;
+      if (tokenData.user_id) {
+        accountId = String(tokenData.user_id);
+      }
+
+      // Step B: Exchange short-lived token for long-lived Instagram User access token via graph.instagram.com
+      const longLivedRes = await fetch(
+        `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${appSecret}&access_token=${shortLivedToken}`
+      );
+      const longLivedData = await longLivedRes.json();
+
+      if (longLivedData.access_token) {
+        accessToken = longLivedData.access_token;
+        if (longLivedData.expires_in) {
+          expiresAt = new Date(Date.now() + longLivedData.expires_in * 1000).toISOString();
+        }
+      } else {
+        accessToken = shortLivedToken;
+      }
+
+      // Step C: Retrieve authenticated Instagram profile identity from graph.instagram.com
+      const profileRes = await fetch(
+        `https://graph.instagram.com/me?fields=id,username,user_id,account_type&access_token=${accessToken}`
+      );
+      const profileData = await profileRes.json();
+
+      if (profileData.username) {
+        accountName = profileData.username;
+      }
+      if (profileData.id || profileData.user_id) {
+        accountId = String(profileData.user_id || profileData.id);
       }
     }
 
-    // 4. Encrypt access token before storing
+    // 4. Encrypt access token using AES-256-GCM before database storage
     const encryptedToken = encryptToken(accessToken);
 
-    // 5. Upsert connection record linked to tenantId
+    // 5. Upsert connection record strictly linked to tenantId
     await backend
       .from('platform_connections')
       .upsert({
@@ -72,21 +145,29 @@ export async function GET(req: NextRequest) {
         account_name: accountName,
         access_token_encrypted: encryptedToken,
         is_active: true,
-        token_expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+        permissions: grantedScopes,
+        token_expires_at: expiresAt,
         last_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       }, { onConflict: 'tenant_id,platform,account_id' });
 
     // 6. Record Audit Log
     await db.addAuditLog({
       tenant_id: tenantId,
-      event_type: 'META_INSTAGRAM_CONNECTED',
+      event_type: 'INSTAGRAM_LOGIN_CONNECTED',
       actor_type: 'user',
-      details: { platform: 'instagram', tenant_id: tenantId, encrypted_storage: true },
+      details: { 
+        platform: 'instagram', 
+        tenant_id: tenantId, 
+        account_id: accountId,
+        account_name: accountName,
+        encrypted_storage: true 
+      },
     });
 
     return NextResponse.redirect(new URL(`/dashboard/clients/${tenantId}?success=instagram_connected`, req.url));
   } catch (err: any) {
-    console.error('Meta OAuth Callback error:', err);
+    console.error('Instagram OAuth Callback error:', err);
     return NextResponse.redirect(new URL('/dashboard/integrations?error=oauth_failed', req.url));
   }
 }
