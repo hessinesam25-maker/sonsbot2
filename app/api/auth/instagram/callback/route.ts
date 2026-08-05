@@ -43,16 +43,14 @@ export async function GET(req: NextRequest) {
     const tenantId = consumedState.tenant_id;
     const grantedScopes = consumedState.scopes || [
       'instagram_business_basic',
-      'instagram_business_manage_messages',
       'instagram_business_manage_comments',
+      'instagram_business_manage_messages',
     ];
 
-    const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
-    const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
+    const appId = process.env.INSTAGRAM_APP_ID;
+    const appSecret = process.env.INSTAGRAM_APP_SECRET;
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const redirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || 
-                        process.env.META_OAUTH_REDIRECT_URI || 
-                        `${baseUrl}/api/auth/instagram/callback`;
+    const redirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || `${baseUrl}/api/auth/instagram/callback`;
 
     let accessToken = 'token_ig_auth_' + Date.now();
     let accountId = 'ig_acc_' + Date.now().toString().slice(-6);

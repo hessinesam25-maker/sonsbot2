@@ -74,22 +74,29 @@ export async function GET(req: NextRequest) {
       }, { status: 401 });
     }
 
-    // 3. Generate cryptographically secure random state & nonce
+    // 3. Environment configuration check - Require INSTAGRAM_APP_ID strictly
+    const appId = process.env.INSTAGRAM_APP_ID;
+    if (!appId && process.env.NODE_ENV !== 'test') {
+      return NextResponse.json({ 
+        error: 'Server Configuration Error: INSTAGRAM_APP_ID environment variable is missing.' 
+      }, { status: 500 });
+    }
+
+    const activeAppId = appId || 'test_instagram_app_id';
+
+    // 4. Generate cryptographically secure random state & nonce
     const stateToken = crypto.randomBytes(32).toString('hex');
     const nonce = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
 
+    // Required scopes per Meta Instagram API with Instagram Login specification:
     const scopesList = [
       'instagram_business_basic',
-      'instagram_business_manage_messages',
       'instagram_business_manage_comments',
+      'instagram_business_manage_messages',
     ];
 
-    if (searchParams.get('enable_publishing') === 'true') {
-      scopesList.push('instagram_business_content_publish');
-    }
-
-    // 4. Store state record server-side in oauth_states bound to user_id
+    // 5. Store state record server-side in oauth_states bound to user_id
     const stateRecord: Record<string, any> = {
       tenant_id: tenantId,
       platform: 'instagram',
@@ -112,16 +119,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to generate secure OAuth state' }, { status: 500 });
     }
 
-    // 5. Construct official Instagram API with Instagram Login Authorization URL
-    const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || '8910237491023';
+    // 6. Construct official Instagram API with Instagram Login Authorization URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const redirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || 
-                        process.env.META_OAUTH_REDIRECT_URI || 
-                        `${baseUrl}/api/auth/instagram/callback`;
-
+    const redirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || `${baseUrl}/api/auth/instagram/callback`;
     const scopesStr = scopesList.join(',');
 
-    const instagramAuthUrl = `https://www.instagram.com/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopesStr)}&response_type=code&state=${stateToken}`;
+    const instagramAuthUrl = `https://www.instagram.com/oauth/authorize?client_id=${activeAppId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopesStr)}&response_type=code&state=${stateToken}`;
 
     return NextResponse.json({ 
       url: instagramAuthUrl, 

@@ -7,10 +7,9 @@ export class InstagramConnector implements PlatformConnector {
   private apiVersion: string;
 
   constructor(appSecret?: string) {
-    this.appSecret = appSecret || process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || '';
-    this.apiVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v20.0';
+    this.appSecret = appSecret || process.env.INSTAGRAM_APP_SECRET || '';
+    this.apiVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || 'v20.0';
   }
-
 
   verifySignature(rawBody: string | Buffer, signatureHeader: string | null): boolean {
     return verifyMetaSignature(rawBody, signatureHeader, this.appSecret);
@@ -68,7 +67,6 @@ export class InstagramConnector implements PlatformConnector {
 
   /**
    * Refresh long-lived Instagram User Access Token via graph.instagram.com
-   * Officially supported long-lived token refresh mechanism
    */
   async refreshLongLivedToken(currentAccessToken: string): Promise<{ success: boolean; accessToken?: string; expiresIn?: number; error?: string }> {
     const url = `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${currentAccessToken}`;
@@ -99,7 +97,6 @@ export class InstagramConnector implements PlatformConnector {
     const url = `https://graph.instagram.com/${this.apiVersion}/me/messages`;
 
     try {
-      // If no valid API token is set, mock successful response in dev mode
       if (!options.accessToken || options.accessToken.includes('mock')) {
         console.log(`[InstagramConnector] Mock DM sent to ${options.recipientId}: ${options.content}`);
         return { success: true, messageId: `mock_ig_msg_${Date.now()}` };

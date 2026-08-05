@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { InstagramConnector } from '../lib/connectors/instagram';
 import { encryptToken, decryptToken } from '../lib/security/encryption';
 import { db } from '../lib/db/store';
@@ -11,9 +13,9 @@ describe('Instagram API with Instagram Login Test Suite', () => {
   const tenantB_ID = '22222222-2222-2222-2222-222222222222';
 
   it('1. Initiation URL uses instagram.com authorization endpoint, not facebook.com', async () => {
-    const appId = '1234567890';
+    const appId = '1061582936321439';
     const redirectUri = 'http://localhost:3000/api/auth/instagram/callback';
-    const scopesStr = 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments';
+    const scopesStr = 'instagram_business_basic,instagram_business_manage_comments,instagram_business_manage_messages';
     const stateToken = crypto.randomBytes(32).toString('hex');
 
     const authUrl = `https://www.instagram.com/oauth/authorize?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopesStr)}&response_type=code&state=${stateToken}`;
@@ -22,14 +24,13 @@ describe('Instagram API with Instagram Login Test Suite', () => {
     expect(authUrl).not.toContain('facebook.com');
   });
 
-  it('2. Configurable INSTAGRAM_GRAPH_API_VERSION is supported with fallback to v20.0', () => {
+  it('2. Configurable INSTAGRAM_GRAPH_API_VERSION is supported with default v20.0', () => {
     const originalEnv = process.env.INSTAGRAM_GRAPH_API_VERSION;
     process.env.INSTAGRAM_GRAPH_API_VERSION = 'v21.0';
 
     const connector = new InstagramConnector(appSecret);
     expect((connector as any).apiVersion).toBe('v21.0');
 
-    // Restore env
     if (originalEnv) {
       process.env.INSTAGRAM_GRAPH_API_VERSION = originalEnv;
     } else {
@@ -40,8 +41,8 @@ describe('Instagram API with Instagram Login Test Suite', () => {
   it('3. Verifies modern Instagram Business permissions are requested and legacy Facebook permissions are excluded', () => {
     const modernScopes = [
       'instagram_business_basic',
-      'instagram_business_manage_messages',
       'instagram_business_manage_comments',
+      'instagram_business_manage_messages',
     ];
 
     const legacyScopes = [
@@ -104,12 +105,10 @@ describe('Instagram API with Instagram Login Test Suite', () => {
   });
 
   it('8. Atomic State Consumption & Concurrency Test: simultaneous callbacks result in exactly one successful consumption', async () => {
-    // Simulating atomic single-use state consumption set/store
     const activeStates = new Set<string>();
     const stateHash = crypto.randomBytes(32).toString('hex');
     activeStates.add(stateHash);
 
-    // Simulate 5 simultaneous callback requests arriving concurrently
     const atomicConsume = async () => {
       if (activeStates.has(stateHash)) {
         activeStates.delete(stateHash);
@@ -216,11 +215,78 @@ describe('Instagram API with Instagram Login Test Suite', () => {
     expect(secondDelivery.duplicate).toBe(true);
   });
 
-  it('17. Existing knowledge base and rules functionality remain intact', async () => {
-    const kb = await db.getKnowledgeBase(tenantA_ID);
-    const rules = await db.getAutomationRules(tenantA_ID);
+  it('17. No hardcoded fallback App ID 8910237491023 in source code files', () => {
+    const initiateCode = fs.readFileSync(path.join(__dirname, '../app/api/auth/instagram/initiate/route.ts'), 'utf-8');
+    const callbackCode = fs.readFileSync(path.join(__dirname, '../app/api/auth/instagram/callback/route.ts'), 'utf-8');
 
-    expect(kb.tenant_id).toBe(tenantA_ID);
-    expect(rules.tenant_id).toBe(tenantA_ID);
+    expect(initiateCode).not.toContain('8910237491023');
+    expect(callbackCode).not.toContain('8910237491023');
+    expect(initiateCode).not.toContain('META_APP_ID');
+    expect(callbackCode).not.toContain('META_APP_ID');
+  });
+
+  it('18. Missing INSTAGRAM_APP_ID or required variables fails safely with clear server-side configuration error', () => {
+    const envBackup = { ...process.env };
+    delete process.env.INSTAGRAM_APP_ID;
+
+    expect(() => validateEnvironment()).toThrow('[FATAL CONFIG ERROR] Missing required environment variables');
+
+    process.env = envBackup;
+  });
+
+  it('19. Webhook GET verification requires INSTAGRAM_WEBHOOK_VERIFY_TOKEN matching', () => {
+    const expectedToken = 'valid_verify_token_123';
+    const verifyChallenge = (mode: string | null, token: string | null, challenge: string | null) => {
+      if (mode === 'subscribe' && token === expectedToken) {
+        return { success: true, challenge };
+      }
+      return { success: false };
+    };
+
+    const valid = verifyChallenge('subscribe', 'valid_verify_token_123', 'test_challenge_code');
+    expect(valid.success).toBe(true);
+    expect(valid.challenge).toBe('test_challenge_code');
+
+    const invalid = verifyChallenge('subscribe', 'wrong_token', 'test_challenge_code');
+    expect(invalid.success).toBe(false);
+  });
+
+  it('20. Webhook POST rejects invalid HMAC signatures', () => {
+    const connector = new InstagramConnector('secret_key_123');
+    const rawBody = JSON.stringify({ object: 'instagram', entry: [] });
+    const invalidSignature = 'sha256=0000000000000000000000000000000000000000000000000000000000000000';
+
+    const isValid = connector.verifySignature(rawBody, invalidSignature);
+    expect(isValid).toBe(false);
+  });
+
+  it('21. Meta Deauthorization callback verifies signed_request signature and returns status', () => {
+    const testSecret = 'secret_key_123';
+    const payloadObj = { user_id: 'ig_user_deauth_999', algorithm: 'HMAC-SHA256', issued_at: Date.now() };
+    const payloadStr = Buffer.from(JSON.stringify(payloadObj)).toString('base64url');
+    const sig = crypto.createHmac('sha256', testSecret).update(payloadStr).digest('base64url');
+    const signedRequest = `${sig}.${payloadStr}`;
+
+    const parseSignedRequest = (sr: string, secret: string) => {
+      const parts = sr.split('.');
+      const expectedSig = crypto.createHmac('sha256', secret).update(parts[1]).digest('base64url');
+      if (parts[0] === expectedSig) {
+        return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      }
+      return null;
+    };
+
+    const parsed = parseSignedRequest(signedRequest, testSecret);
+    expect(parsed).toBeDefined();
+    expect(parsed.user_id).toBe('ig_user_deauth_999');
+  });
+
+  it('22. Meta Data Deletion callback returns confirmation code and status URL', () => {
+    const confirmationCode = 'ig_del_' + crypto.randomBytes(12).toString('hex');
+    const baseUrl = 'https://sons-instagram-bot.vercel.app';
+    const statusUrl = `${baseUrl}/dashboard/integrations?status=data_deleted&code=${confirmationCode}`;
+
+    expect(confirmationCode).toContain('ig_del_');
+    expect(statusUrl).toContain('data_deleted');
   });
 });

@@ -1,6 +1,6 @@
 /**
  Environment Variable Validation Module
- Enforces strict presence of required environment variables for production/local runtime.
+ Enforces strict presence of required INSTAGRAM_* environment variables for production/local runtime.
  Fails clearly with actionable errors if required variables are missing.
  */
 
@@ -13,16 +13,11 @@ export interface AppConfig {
   aiProvider: 'openai' | 'gemini' | 'mock';
   openaiApiKey?: string;
   geminiApiKey?: string;
-  instagramAppId?: string;
-  instagramAppSecret?: string;
+  instagramAppId: string;
+  instagramAppSecret: string;
   instagramWebhookVerifyToken: string;
   instagramOAuthRedirectUri: string;
   instagramGraphApiVersion: string;
-  metaAppId?: string;
-  metaAppSecret?: string;
-  metaWebhookVerifyToken: string;
-  metaOAuthRedirectUri: string;
-  metaGraphApiVersion: string;
 }
 
 export function validateEnvironment(): AppConfig {
@@ -34,20 +29,24 @@ export function validateEnvironment(): AppConfig {
 
   const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const encryptionKey = process.env.TOKEN_ENCRYPTION_KEY || process.env.ENCRYPTION_KEY;
-  const instagramWebhookVerifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
-  const instagramAppId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID;
-  const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
-  const instagramOAuthRedirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || process.env.META_OAUTH_REDIRECT_URI || `${appUrl}/api/auth/instagram/callback`;
-  const instagramGraphApiVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || process.env.META_GRAPH_API_VERSION || 'v20.0';
+
+  const instagramAppId = process.env.INSTAGRAM_APP_ID;
+  const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET;
+  const instagramWebhookVerifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+  const instagramOAuthRedirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || `${appUrl}/api/auth/instagram/callback`;
+  const instagramGraphApiVersion = process.env.INSTAGRAM_GRAPH_API_VERSION || 'v20.0';
 
   if (!supabaseUrl) missingVars.push('NEXT_PUBLIC_SUPABASE_URL');
   if (!supabaseAnonKey) missingVars.push('NEXT_PUBLIC_SUPABASE_ANON_KEY');
   if (!encryptionKey) missingVars.push('TOKEN_ENCRYPTION_KEY / ENCRYPTION_KEY');
+  if (!instagramAppId) missingVars.push('INSTAGRAM_APP_ID');
+  if (!instagramAppSecret) missingVars.push('INSTAGRAM_APP_SECRET');
+  if (!instagramWebhookVerifyToken) missingVars.push('INSTAGRAM_WEBHOOK_VERIFY_TOKEN');
 
   if (missingVars.length > 0) {
     throw new Error(
       `[FATAL CONFIG ERROR] Missing required environment variables:\n - ${missingVars.join('\n - ')}\n` +
-      `Please check your .env.local file.`
+      `Please configure these variables in your environment configuration.`
     );
   }
 
@@ -62,17 +61,10 @@ export function validateEnvironment(): AppConfig {
     aiProvider,
     openaiApiKey: process.env.OPENAI_API_KEY || process.env.AI_API_KEY,
     geminiApiKey: process.env.GEMINI_API_KEY,
-    instagramAppId,
-    instagramAppSecret,
-    instagramWebhookVerifyToken,
+    instagramAppId: instagramAppId!,
+    instagramAppSecret: instagramAppSecret!,
+    instagramWebhookVerifyToken: instagramWebhookVerifyToken!,
     instagramOAuthRedirectUri,
     instagramGraphApiVersion,
-    metaAppId: instagramAppId,
-    metaAppSecret: instagramAppSecret,
-    metaWebhookVerifyToken: instagramWebhookVerifyToken,
-    metaOAuthRedirectUri: instagramOAuthRedirectUri,
-    metaGraphApiVersion: instagramGraphApiVersion,
   };
 }
-
-

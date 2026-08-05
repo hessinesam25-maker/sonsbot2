@@ -9,7 +9,6 @@ import { decryptToken } from '@/lib/security/encryption';
 
 const connector = new InstagramConnector();
 
-
 /**
  * GET Handler for Instagram Webhook verification challenge
  */
@@ -19,7 +18,7 @@ export async function GET(req: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const expectedToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || process.env.META_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
+  const expectedToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
 
   const verification = verifyMetaWebhookChallenge(mode, token, challenge, expectedToken);
 
@@ -43,9 +42,9 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
     const signature = req.headers.get('x-hub-signature-256');
 
-    // 1. Validate HMAC signature in production
-    const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET;
-    if (process.env.NODE_ENV === 'production' && appSecret) {
+    // 1. Validate HMAC signature in production or whenever INSTAGRAM_APP_SECRET is set
+    const appSecret = process.env.INSTAGRAM_APP_SECRET;
+    if (appSecret || process.env.NODE_ENV === 'production') {
       const isValid = connector.verifySignature(rawBody, signature);
       if (!isValid) {
         await db.addAuditLog({
@@ -77,7 +76,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Prevent bot from replying to its own outgoing messages
+      // Prevent bot from replying to its own outgoing messages (message echoes)
       if (event.senderId === targetConn.account_id) {
         continue;
       }
@@ -101,16 +100,13 @@ export async function POST(req: NextRequest) {
       }
 
       const kb = await db.getKnowledgeBase(authoritativeTenantId);
-
       const menu = await db.getMenu(authoritativeTenantId);
       const rules = await db.getAutomationRules(authoritativeTenantId);
-
       const sanitizedText = sanitizeInput(event.content);
 
       if (event.eventType === 'message') {
         let conversations = await db.getConversations(authoritativeTenantId);
 
-        // Check Idempotency for DMs: ignore already-processed message ID
         let existingMessages = [];
         let conv = conversations.find(c => c.external_id === event.senderId || c.customer_id === event.senderId);
         if (conv) {
@@ -205,7 +201,6 @@ export async function POST(req: NextRequest) {
                 details: { conversation_id: conv.id, language: aiResponse.detectedLanguage, confidence: aiResponse.confidenceScore },
               });
             } else {
-              // Message sending failed - Flag for human review
               await db.updateConversation(conv.id, { 
                 status: 'needs_human_review',
                 human_takeover: true,
@@ -231,7 +226,6 @@ export async function POST(req: NextRequest) {
           }
         }
       } else if (event.eventType === 'comment') {
-        // Idempotency check for comments
         const existingComments = await db.getComments(authoritativeTenantId);
         const alreadyProcessed = existingComments.some(c => c.external_comment_id === event.externalId);
         if (alreadyProcessed) {
@@ -240,7 +234,6 @@ export async function POST(req: NextRequest) {
         }
 
         const aiResponse = generateAIReply(sanitizedText, 'comment', kb, menu, rules);
-
         let isAutoReplied = false;
         let replyContent = aiResponse.suggestedReply;
 
