@@ -53,41 +53,62 @@ export async function POST(req: NextRequest) {
     }
 
     if (!isAuthorized) {
+      console.warn(JSON.stringify({ stage: 'disconnect_auth', tenant_id, error_code: 'unauthorized' }));
       return NextResponse.json({ 
         error: 'Unauthorized: Valid server-side session required to disconnect Instagram account.' 
       }, { status: 401 });
     }
 
-    // 2. Fetch existing active Instagram connection for target tenant ONLY
-    const { data: connection, error: connErr } = await backend
+    // 2. Fetch existing Instagram connections without unsafe .single()
+    const { data: connections, error: connErr } = await backend
       .from('platform_connections')
-      .select('id, account_id, account_name, tenant_id')
+      .select('id, account_id, account_name, tenant_id, is_active')
       .eq('tenant_id', tenant_id)
-      .eq('platform', 'instagram')
-      .single();
+      .eq('platform', 'instagram');
 
-    if (connErr || !connection) {
+    if (connErr) {
+      console.error(JSON.stringify({ stage: 'disconnect_fetch', tenant_id, error_code: 'db_query_failed' }));
+      return NextResponse.json({ error: 'Failed to query Instagram connection.' }, { status: 500 });
+    }
+
+    if (!connections || connections.length === 0) {
       return NextResponse.json({ error: 'No active Instagram connection found for this tenant.' }, { status: 404 });
     }
 
+    const activeConnections = connections.filter(c => c.is_active);
+
+    if (activeConnections.length === 0) {
+      return NextResponse.json({ error: 'No active Instagram connection found for this tenant.' }, { status: 404 });
+    }
+
+    if (activeConnections.length > 1) {
+      console.warn(JSON.stringify({ stage: 'disconnect_fetch', tenant_id, duplicate_count: activeConnections.length }));
+    }
+
+    const targetConnection = activeConnections[0];
+
     // Ensure tenant match
-    if (connection.tenant_id !== tenant_id) {
+    if (targetConnection.tenant_id !== tenant_id) {
+      console.error(JSON.stringify({ stage: 'disconnect_tenant_check', tenant_id, error_code: 'tenant_isolation_violation' }));
       return NextResponse.json({ error: 'Tenant isolation violation' }, { status: 403 });
     }
 
-    // 3. Deactivate connection strictly for target tenant
+    // 3. Deactivate all active connections strictly for target tenant & platform
     const { error: updateErr } = await backend
       .from('platform_connections')
       .update({
         is_active: false,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', connection.id)
-      .eq('tenant_id', tenant_id);
+      .eq('tenant_id', tenant_id)
+      .eq('platform', 'instagram');
 
     if (updateErr) {
+      console.error(JSON.stringify({ stage: 'disconnect_update', tenant_id, error_code: 'db_update_failed' }));
       return NextResponse.json({ error: 'Failed to disconnect Instagram connection.' }, { status: 500 });
     }
+
+    console.log(JSON.stringify({ stage: 'disconnect_success', tenant_id, connection_id: targetConnection.id, account_id: targetConnection.account_id }));
 
     // 4. Record Audit Log (without token!)
     await db.addAuditLog({
@@ -97,19 +118,19 @@ export async function POST(req: NextRequest) {
       details: {
         platform: 'instagram',
         tenant_id: tenant_id,
-        account_id: connection.account_id,
-        account_name: connection.account_name,
+        account_id: targetConnection.account_id,
+        account_name: targetConnection.account_name,
       },
     });
 
     return NextResponse.json({
       success: true,
       tenant_id: tenant_id,
-      account_id: connection.account_id,
+      account_id: targetConnection.account_id,
       status: 'disconnected',
     });
   } catch (err: any) {
-    console.error('Instagram disconnect error:', err);
+    console.error(JSON.stringify({ stage: 'disconnect_unhandled', error_code: 'internal_error' }));
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { TopHeader } from '@/components/TopHeader';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { db } from '@/lib/db/store';
@@ -9,12 +10,16 @@ import {
   Share2, ShieldCheck, Lock, ExternalLink, AlertTriangle, CheckCircle2, XCircle, LogOut, RefreshCw 
 } from 'lucide-react';
 
-export default function IntegrationsPage() {
+function IntegrationsContent() {
   const { selectedTenantId, isPlatformAdmin } = useAuth();
+  const searchParams = useSearchParams();
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+
+  const successMessage = searchParams.get('success');
+  const errorMessage = searchParams.get('error');
 
   useEffect(() => {
     async function loadConnections() {
@@ -100,13 +105,26 @@ export default function IntegrationsPage() {
     }
   };
 
-
   return (
     <div>
       <TopHeader 
         title="Platform Integrations Status" 
         subtitle="Instagram API with Instagram Login & TikTok Business Messaging Readiness" 
       />
+
+      {successMessage && (
+        <div style={{ background: 'rgba(16, 185, 129, 0.12)', border: '1px solid var(--accent-emerald)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--accent-emerald)' }}>
+          <CheckCircle2 size={18} />
+          <span><strong>Success:</strong> Instagram account successfully connected and credentials encrypted.</span>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#ef4444' }}>
+          <XCircle size={18} />
+          <span><strong>OAuth Error:</strong> Connection failed ({errorMessage}). Please try initiating authorization again.</span>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
         {/* Instagram API with Instagram Login Integration */}
@@ -242,5 +260,13 @@ export default function IntegrationsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function IntegrationsPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '2rem' }}>Loading integrations...</div>}>
+      <IntegrationsContent />
+    </Suspense>
   );
 }

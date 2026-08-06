@@ -118,11 +118,16 @@ export const db = {
 
   // Real Supabase Connections
   getConnections: async (tenantId?: string): Promise<PlatformConnection[]> => {
-    let query = supabaseFrontend.from('platform_connections').select('*');
+    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    let query = client.from('platform_connections').select('*');
     if (tenantId) {
       query = query.eq('tenant_id', tenantId);
     }
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('Error fetching platform connections:', error);
+      return [];
+    }
     return data || [];
   },
 

@@ -10,7 +10,7 @@ export async function middleware(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const isDashboardRoute = pathname.startsWith('/dashboard');
-  const isProtectedApiRoute = pathname.startsWith('/api/auth/instagram') || pathname.startsWith('/api/admin');
+  const isProtectedApiRoute = (pathname.startsWith('/api/auth/instagram') && !pathname.startsWith('/api/auth/instagram/callback')) || pathname.startsWith('/api/admin');
 
   if (!user) {
     if (isDashboardRoute) {

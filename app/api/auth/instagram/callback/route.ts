@@ -14,12 +14,13 @@ export async function GET(req: NextRequest) {
   const errorDescription = searchParams.get('error_description');
 
   if (error || errorReason || errorDescription) {
-    console.warn(`Instagram OAuth authorization denied or failed: ${error || errorReason} - ${errorDescription}`);
     const errorCode = error === 'access_denied' ? 'oauth_cancelled' : 'oauth_denied';
+    console.warn(JSON.stringify({ stage: 'authorization_check', error_code: errorCode }));
     return NextResponse.redirect(new URL(`/dashboard/integrations?error=${errorCode}`, req.url));
   }
 
   if (!code || !state) {
+    console.warn(JSON.stringify({ stage: 'parameter_check', error_code: 'missing_code_or_state' }));
     return NextResponse.redirect(new URL('/dashboard/integrations?error=missing_code_or_state', req.url));
   }
 
@@ -36,11 +37,13 @@ export async function GET(req: NextRequest) {
       .single();
 
     if (stateErr || !consumedState) {
-      console.error('Invalid, expired, or already-consumed OAuth state received:', state);
+      console.error(JSON.stringify({ stage: 'state_validation', error_code: 'invalid_state' }));
       return NextResponse.redirect(new URL('/dashboard/integrations?error=invalid_state', req.url));
     }
 
     const tenantId = consumedState.tenant_id;
+    console.log(JSON.stringify({ stage: 'state_validation', tenant_id: tenantId, status: 'success' }));
+
     const grantedScopes = consumedState.scopes || [
       'instagram_business_basic',
       'instagram_business_manage_comments',
@@ -77,9 +80,11 @@ export async function GET(req: NextRequest) {
       const tokenData = await tokenRes.json();
 
       if (!tokenRes.ok || !tokenData.access_token) {
-        console.error('Instagram short-lived token exchange failed:', tokenData);
-        return NextResponse.redirect(new URL('/dashboard/integrations?error=token_exchange_failed', req.url));
+        console.error(JSON.stringify({ stage: 'short_lived_token_exchange', tenant_id: tenantId, error_code: 'token_exchange_failed' }));
+        return NextResponse.redirect(new URL(`/dashboard/integrations?tenant_id=${tenantId}&error=token_exchange_failed`, req.url));
       }
+
+      console.log(JSON.stringify({ stage: 'short_lived_token_exchange', tenant_id: tenantId, status: 'success' }));
 
       const shortLivedToken = tokenData.access_token;
       if (tokenData.user_id) {
@@ -101,6 +106,8 @@ export async function GET(req: NextRequest) {
         accessToken = shortLivedToken;
       }
 
+      console.log(JSON.stringify({ stage: 'long_lived_token_exchange', tenant_id: tenantId, status: 'success' }));
+
       // Step C: Retrieve authenticated Instagram profile identity from graph.instagram.com
       const profileRes = await fetch(
         `https://graph.instagram.com/me?fields=id,username,user_id,account_type&access_token=${accessToken}`
@@ -113,13 +120,15 @@ export async function GET(req: NextRequest) {
       if (profileData.id || profileData.user_id) {
         accountId = String(profileData.user_id || profileData.id);
       }
+
+      console.log(JSON.stringify({ stage: 'profile_lookup', tenant_id: tenantId, account_id: accountId, status: 'success' }));
     }
 
     // 3. Encrypt access token using AES-256-GCM before database storage
     const encryptedToken = encryptToken(accessToken);
 
     // 4. Upsert connection record strictly linked to tenantId
-    await backend
+    const { data: upsertedConn, error: upsertErr } = await backend
       .from('platform_connections')
       .upsert({
         tenant_id: tenantId,
@@ -132,7 +141,17 @@ export async function GET(req: NextRequest) {
         token_expires_at: expiresAt,
         last_synced_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'tenant_id,platform,account_id' });
+      }, { onConflict: 'tenant_id,platform,account_id' })
+      .select('id')
+      .single();
+
+    if (upsertErr) {
+      console.error(JSON.stringify({ stage: 'database_upsert', tenant_id: tenantId, error_code: 'db_upsert_failed' }));
+      return NextResponse.redirect(new URL(`/dashboard/integrations?tenant_id=${tenantId}&error=db_upsert_failed`, req.url));
+    }
+
+    const connectionId = upsertedConn?.id || 'unknown';
+    console.log(JSON.stringify({ stage: 'database_upsert', tenant_id: tenantId, connection_id: connectionId, status: 'success' }));
 
     // 5. Record Audit Log
     await db.addAuditLog({
@@ -148,9 +167,11 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    console.log(JSON.stringify({ stage: 'callback_completed', tenant_id: tenantId, connection_id: connectionId, status: 'success' }));
+
     return NextResponse.redirect(new URL(`/dashboard/clients/${tenantId}?success=instagram_connected`, req.url));
   } catch (err: any) {
-    console.error('Instagram OAuth Callback error:', err);
+    console.error(JSON.stringify({ stage: 'callback_unhandled', error_code: 'oauth_failed' }));
     return NextResponse.redirect(new URL('/dashboard/integrations?error=oauth_failed', req.url));
   }
 }
