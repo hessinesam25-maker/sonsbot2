@@ -642,6 +642,133 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       // addMessage MUST NOT be called if conversation creation failed
       expect(addMsgSpy).not.toHaveBeenCalled();
     });
+
+    it('allows unlimited distinct messages from same sender A, deduplicates retried MIDs, processes sender B independently, and persists messages during human_takeover', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+
+      const mockConn = {
+        id: 'conn_test_multi_msg',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        platform: 'instagram',
+        account_id: '17841400011111111',
+        account_name: 'allthingisgood',
+        access_token_encrypted: encryptToken('valid_access_token_123'),
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([mockConn as any]);
+
+      const convSenderA = {
+        id: 'conv_sender_a_uuid',
+        tenant_id: mockConn.tenant_id,
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'sender_A',
+        customer_id: 'sender_A',
+        customer_name: 'Sender A',
+        customer_language: 'nl',
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+
+      const convSenderB = {
+        id: 'conv_sender_b_uuid',
+        tenant_id: mockConn.tenant_id,
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'sender_B',
+        customer_id: 'sender_B',
+        customer_name: 'Sender B',
+        customer_language: 'nl',
+        status: 'needs_human_review',
+        human_takeover: true, // Human takeover active!
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+
+      const storedMessagesSenderA: any[] = [];
+      const storedMessagesSenderB: any[] = [];
+
+      vi.spyOn(db, 'getConversations').mockImplementation(async () => [convSenderA as any, convSenderB as any]);
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+      vi.spyOn(db, 'getMessages').mockImplementation(async (convId) => {
+        return convId === convSenderA.id ? storedMessagesSenderA : storedMessagesSenderB;
+      });
+
+      const addMsgSpy = vi.spyOn(db, 'addMessage').mockImplementation(async (msg) => {
+        const stored = { id: `msg_${Date.now()}_${Math.random()}`, ...msg, created_at: new Date().toISOString() };
+        if (msg.conversation_id === convSenderA.id) {
+          storedMessagesSenderA.push(stored);
+        } else {
+          storedMessagesSenderB.push(stored);
+        }
+        return stored as any;
+      });
+
+      const sendWebhookMsg = async (senderId: string, mid: string, text: string) => {
+        const payload = {
+          object: 'instagram',
+          entry: [
+            {
+              id: '17841400011111111',
+              messaging: [
+                {
+                  sender: { id: senderId },
+                  recipient: { id: '17841400011111111' },
+                  timestamp: Date.now(),
+                  message: { mid, text }
+                }
+              ]
+            }
+          ]
+        };
+        const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        return await POST(req);
+      };
+
+      const getCustomerMsgs = (list: any[]) => list.filter(m => m.sender_type === 'customer');
+
+      // 1. Sender A message MID-1
+      await sendWebhookMsg('sender_A', 'mid_001', 'First DM from sender A');
+      let customerMsgsA = getCustomerMsgs(storedMessagesSenderA);
+      expect(customerMsgsA.length).toBe(1);
+      expect(customerMsgsA[0].external_message_id).toBe('mid_001');
+
+      // 2. Sender A message MID-2
+      await sendWebhookMsg('sender_A', 'mid_002', 'Second DM from sender A');
+      customerMsgsA = getCustomerMsgs(storedMessagesSenderA);
+      expect(customerMsgsA.length).toBe(2);
+
+      // 3. Sender A message MID-3
+      await sendWebhookMsg('sender_A', 'mid_003', 'Third DM from sender A');
+      customerMsgsA = getCustomerMsgs(storedMessagesSenderA);
+      expect(customerMsgsA.length).toBe(3);
+
+      // 4. Meta retry MID-2 from Sender A -> MUST be ignored as duplicate
+      await sendWebhookMsg('sender_A', 'mid_002', 'Second DM from sender A');
+      customerMsgsA = getCustomerMsgs(storedMessagesSenderA);
+      // Count remains 3 (duplicate skipped!)
+      expect(customerMsgsA.length).toBe(3);
+
+      // 5. Sender B message MID-4 (human_takeover is active on Sender B)
+      await sendWebhookMsg('sender_B', 'mid_004', 'Message from sender B during human takeover');
+      const customerMsgsB = getCustomerMsgs(storedMessagesSenderB);
+      // Inbound customer message MUST be stored despite human_takeover!
+      expect(customerMsgsB.length).toBe(1);
+      expect(customerMsgsB[0].external_message_id).toBe('mid_004');
+    });
   });
 });
 

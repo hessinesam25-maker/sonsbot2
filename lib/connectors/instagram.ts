@@ -30,15 +30,22 @@ export class InstagramConnector implements PlatformConnector {
         for (const msg of entry.messaging) {
           if (msg && msg.message && msg.message.text) {
             const recipientId = msg.recipient?.id ? String(msg.recipient.id) : entryAccountId;
+            const senderId = String(msg.sender?.id || 'unknown');
+            const timestampMs = msg.timestamp || Date.now();
+            const explicitMid = msg.message.mid || msg.mid || msg.message_id;
+            const externalId = explicitMid && String(explicitMid) !== entryAccountId
+              ? String(explicitMid)
+              : `ig_msg_${senderId}_${timestampMs}_${crypto.randomUUID().slice(0, 8)}`;
+
             events.push({
               platform: 'instagram',
               eventType: 'message',
-              externalId: msg.message.mid || `ig_msg_${Date.now()}`,
-              senderId: String(msg.sender?.id || 'unknown'),
-              senderName: msg.sender?.username || `IG_User_${String(msg.sender?.id || '0000').slice(-4)}`,
+              externalId,
+              senderId,
+              senderName: msg.sender?.username || `IG_User_${senderId.slice(-4)}`,
               recipientId,
               content: msg.message.text,
-              timestamp: new Date(msg.timestamp || Date.now()).toISOString(),
+              timestamp: new Date(timestampMs).toISOString(),
               rawPayload: msg,
             });
           }
@@ -53,10 +60,15 @@ export class InstagramConnector implements PlatformConnector {
           // A. Comments
           if (change.field === 'comments' && change.value) {
             const val = change.value;
+            const commentId = val.id || val.comment_id;
+            const externalId = commentId && String(commentId) !== entryAccountId
+              ? String(commentId)
+              : `ig_cmt_${val.from?.id || 'unk'}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+
             events.push({
               platform: 'instagram',
               eventType: 'comment',
-              externalId: String(val.id || `ig_cmt_${Date.now()}`),
+              externalId,
               senderId: val.from ? String(val.from.id) : 'unknown',
               senderName: val.from ? val.from.username : 'IG_Commenter',
               recipientId: entryAccountId,
@@ -75,15 +87,22 @@ export class InstagramConnector implements PlatformConnector {
               const msgData = item.message || item;
               if (msgData && msgData.text) {
                 const recipientId = item.recipient?.id ? String(item.recipient.id) : entryAccountId;
+                const senderId = String(item.sender?.id || 'unknown');
+                const timestampMs = item.timestamp || Date.now();
+                const explicitMid = msgData.mid || item.mid || msgData.message_id || msgData.id;
+                const externalId = explicitMid && String(explicitMid) !== entryAccountId && String(explicitMid) !== senderId
+                  ? String(explicitMid)
+                  : `ig_msg_${senderId}_${timestampMs}_${crypto.randomUUID().slice(0, 8)}`;
+
                 events.push({
                   platform: 'instagram',
                   eventType: 'message',
-                  externalId: msgData.mid || item.id || `ig_msg_${Date.now()}`,
-                  senderId: String(item.sender?.id || 'unknown'),
-                  senderName: item.sender?.username || `IG_User_${String(item.sender?.id || '0000').slice(-4)}`,
+                  externalId,
+                  senderId,
+                  senderName: item.sender?.username || `IG_User_${senderId.slice(-4)}`,
                   recipientId,
                   content: msgData.text,
-                  timestamp: new Date(item.timestamp || Date.now()).toISOString(),
+                  timestamp: new Date(timestampMs).toISOString(),
                   rawPayload: item,
                 });
               }

@@ -200,7 +200,22 @@ export async function POST(req: NextRequest) {
           event_id: event.externalId,
         });
 
-      if (idempotencyErr && (idempotencyErr.code === '23505' || idempotencyErr.message?.includes('unique constraint'))) {
+      const keySource = event.externalId.startsWith('ig_msg_') || event.externalId.startsWith('ig_cmt_')
+        ? 'generated_unique_key'
+        : 'meta_mid';
+
+      const isDuplicateByEvent = Boolean(idempotencyErr && (idempotencyErr.code === '23505' || idempotencyErr.message?.includes('unique constraint')));
+
+      console.info('[IDEMPOTENCY_DIAGNOSTIC]', JSON.stringify({
+        sender_id_present: Boolean(event.senderId),
+        message_mid_present: keySource === 'meta_mid',
+        generated_idempotency_key_source: keySource,
+        event_id: event.externalId,
+        duplicate_detected: isDuplicateByEvent,
+        duplicate_reason: isDuplicateByEvent ? 'Duplicate event_id skipped by processed_webhook_events table' : null,
+      }));
+
+      if (isDuplicateByEvent) {
         console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
           webhook_object_type: payload?.object || 'unknown',
           event_field_type: event.eventType,
@@ -234,6 +249,15 @@ export async function POST(req: NextRequest) {
           existingMessages = await db.getMessages(conv.id);
           const alreadyProcessed = existingMessages.some(m => m.external_message_id === event.externalId);
           if (alreadyProcessed) {
+            console.info('[IDEMPOTENCY_DIAGNOSTIC]', JSON.stringify({
+              sender_id_present: Boolean(event.senderId),
+              message_mid_present: keySource === 'meta_mid',
+              generated_idempotency_key_source: keySource,
+              event_id: event.externalId,
+              duplicate_detected: true,
+              duplicate_reason: 'Duplicate DM message ID already processed in messages table',
+            }));
+
             console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
               webhook_object_type: payload?.object || 'unknown',
               event_field_type: event.eventType,
