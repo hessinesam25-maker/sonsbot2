@@ -272,9 +272,33 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       expect(json.error).toBe('Disconnected or unknown platform account');
     });
 
-    it('ignores duplicate message events idempotently', async () => {
-      const connector = new InstagramConnector(appSecret);
-      const duplicateMid = 'mid_dup_test_555';
+    it('executes outbound send with customer senderId as recipientId and records auto_replied status on Meta success', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+      const { encryptToken } = await import('../lib/security/encryption');
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([
+        {
+          id: 'conn_test_send',
+          tenant_id: '11111111-1111-1111-1111-111111111111',
+          platform: 'instagram',
+          account_id: '17841400011111111',
+          account_name: 'allthingisgood',
+          access_token_encrypted: encryptToken('valid_access_token_123'),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any
+      ]);
+
+      const sendSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+        success: true,
+        messageId: 'ig_msg_outbound_1001',
+        recipientId: 'cust_888',
+        httpStatus: 200,
+      });
+
       const mockPayload = {
         object: 'instagram',
         entry: [
@@ -282,20 +306,136 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
             id: '17841400011111111',
             messaging: [
               {
-                sender: { id: 'cust_888' },
+                sender: { id: 'cust_888', username: 'message_request_sender' },
                 recipient: { id: '17841400011111111' },
-                message: { mid: duplicateMid, text: 'Test duplicate' }
+                timestamp: 1770000000,
+                message: { mid: `mid_send_${Date.now()}`, text: 'Wat zijn de openingsuren?' }
               }
             ]
           }
         ]
       };
 
-      const eventsFirst = connector.parseWebhookPayload(mockPayload);
-      const eventsSecond = connector.parseWebhookPayload(mockPayload);
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mockPayload)
+      });
 
-      expect(eventsFirst[0].externalId).toBe(duplicateMid);
-      expect(eventsSecond[0].externalId).toBe(duplicateMid);
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+
+      // Verify Instagram send was called with correct customer recipient ID
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      expect(sendSpy.mock.calls[0][0].recipientId).toBe('cust_888');
+    });
+
+    it('does not falsely record auto_replied message when Meta API returns an outbound send failure', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+      const { encryptToken } = await import('../lib/security/encryption');
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([
+        {
+          id: 'conn_test_fail',
+          tenant_id: '11111111-1111-1111-1111-111111111111',
+          platform: 'instagram',
+          account_id: '17841400011111111',
+          account_name: 'allthingisgood',
+          access_token_encrypted: encryptToken('valid_access_token_123'),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any
+      ]);
+
+      vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+        success: false,
+        httpStatus: 400,
+        errorCode: 100,
+        errorType: 'OAuthException',
+        error: 'Unsupported request or invalid recipient',
+      });
+
+      const addMessageSpy = vi.spyOn(db, 'addMessage');
+
+      const mockPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            messaging: [
+              {
+                sender: { id: 'cust_999' },
+                recipient: { id: '17841400011111111' },
+                message: { mid: `mid_fail_${Date.now()}`, text: 'Wat zijn de openingsuren?' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mockPayload)
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+
+      // Verify no message was falsely recorded with status: 'auto_replied'
+      const autoRepliedCalls = addMessageSpy.mock.calls.filter(call => call[0].status === 'auto_replied');
+      expect(autoRepliedCalls.length).toBe(0);
+    });
+
+    it('bypasses outbound send attempt if token decryption fails', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([
+        {
+          id: 'conn_test_bad_token',
+          tenant_id: '11111111-1111-1111-1111-111111111111',
+          platform: 'instagram',
+          account_id: '17841400011111111',
+          account_name: 'allthingisgood',
+          access_token_encrypted: 'invalid_corrupted_token_string',
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any
+      ]);
+
+      const sendSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage');
+
+      const mockPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            messaging: [
+              {
+                sender: { id: 'cust_bad_tok' },
+                recipient: { id: '17841400011111111' },
+                message: { mid: `mid_bad_tok_${Date.now()}`, text: 'Hello?' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mockPayload)
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      expect(sendSpy).not.toHaveBeenCalled();
     });
   });
 });

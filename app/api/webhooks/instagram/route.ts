@@ -177,7 +177,15 @@ export async function POST(req: NextRequest) {
       }
 
       const authoritativeTenantId = targetConn.tenant_id;
-      const decryptedToken = decryptToken(targetConn.access_token_encrypted);
+      let decryptedToken: string | null = null;
+      let tokenDecryptionSucceeded = false;
+
+      try {
+        decryptedToken = decryptToken(targetConn.access_token_encrypted);
+        tokenDecryptionSucceeded = Boolean(decryptedToken);
+      } catch (err: any) {
+        tokenDecryptionSucceeded = false;
+      }
 
       // Concrete Database-level Webhook Idempotency Check
       const backend = getBackendSupabaseClient();
@@ -276,7 +284,7 @@ export async function POST(req: NextRequest) {
           ignored_reason: null,
         }));
 
-        // Run AI Engine if Human Takeover is disabled & Auto-reply is enabled
+        // Run Rule Engine if Human Takeover is disabled & Auto-reply is enabled
         if (!conv.human_takeover && conv.auto_reply_enabled) {
           const aiResponse = generateAIReply(sanitizedText, 'dm', kb, menu, rules);
 
@@ -306,12 +314,58 @@ export async function POST(req: NextRequest) {
               details: { conversation_id: conv.id, reason: aiResponse.reason, confidence: aiResponse.confidenceScore },
             });
           } else {
+            if (!tokenDecryptionSucceeded || !decryptedToken) {
+              console.info('[INSTAGRAM_SEND_DIAGNOSTIC]', JSON.stringify({
+                connection_found: true,
+                tenant_id_present: Boolean(authoritativeTenantId),
+                encrypted_token_present: Boolean(targetConn.access_token_encrypted),
+                token_decryption_succeeded: false,
+                recipient_id_present: Boolean(conv.external_id),
+                recipient_id_source: 'conv.external_id',
+                send_attempted: false,
+                meta_http_status: null,
+                meta_success: false,
+                meta_error_code: null,
+                meta_error_type: null,
+                ignored_reason: 'Token decryption failed',
+              }));
+
+              await db.updateConversation(conv.id, { 
+                status: 'needs_human_review',
+                human_takeover: true,
+              });
+
+              await db.addAuditLog({
+                tenant_id: authoritativeTenantId,
+                event_type: 'AI_AUTO_REPLY_FAILED',
+                actor_type: 'ai',
+                details: { conversation_id: conv.id, error: 'Token decryption failed' },
+              });
+              continue;
+            }
+
             // Attempt outgoing message through Instagram Graph API with decrypted token
             const sendResult = await connector.sendDirectMessage({
               recipientId: conv.external_id,
               content: aiResponse.suggestedReply,
               accessToken: decryptedToken,
             });
+
+            console.info('[INSTAGRAM_SEND_DIAGNOSTIC]', JSON.stringify({
+              connection_found: true,
+              tenant_id_present: Boolean(authoritativeTenantId),
+              encrypted_token_present: true,
+              token_decryption_succeeded: true,
+              recipient_id_present: Boolean(conv.external_id),
+              recipient_id_source: 'conv.external_id',
+              send_attempted: true,
+              meta_http_status: sendResult.httpStatus || (sendResult.success ? 200 : 500),
+              meta_success: sendResult.success,
+              meta_error_code: sendResult.errorCode || null,
+              meta_error_type: sendResult.errorType || null,
+              meta_error_subcode: sendResult.errorSubcode || null,
+              meta_error_message: sendResult.error ? sendResult.error.slice(0, 150) : null,
+            }));
 
             if (sendResult.success) {
               await db.addMessage({
@@ -332,19 +386,10 @@ export async function POST(req: NextRequest) {
                 details: { conversation_id: conv.id, language: aiResponse.detectedLanguage, confidence: aiResponse.confidenceScore },
               });
             } else {
+              // Outbound send failed: mark conversation for human review, record audit log, but do NOT falsely store auto_replied in DB
               await db.updateConversation(conv.id, { 
                 status: 'needs_human_review',
                 human_takeover: true,
-              });
-
-              await db.addMessage({
-                conversation_id: conv.id,
-                tenant_id: authoritativeTenantId,
-                sender_type: 'ai',
-                content: aiResponse.suggestedReply,
-                sanitized_content: aiResponse.suggestedReply,
-                ai_confidence: aiResponse.confidenceScore,
-                status: 'flagged_for_review',
               });
 
               await db.addAuditLog({
@@ -379,7 +424,7 @@ export async function POST(req: NextRequest) {
         let isAutoReplied = false;
         let replyContent = aiResponse.suggestedReply;
 
-        if (aiResponse.isSafeForAutoReply && !aiResponse.requiresHumanReview) {
+        if (decryptedToken && aiResponse.isSafeForAutoReply && !aiResponse.requiresHumanReview) {
           const sendResult = await connector.sendCommentReply({
             commentId: event.externalId,
             content: replyContent,

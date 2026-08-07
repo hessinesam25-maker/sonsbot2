@@ -124,13 +124,27 @@ export class InstagramConnector implements PlatformConnector {
     }
   }
 
-  async sendDirectMessage(options: SendMessageOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    const url = `https://graph.instagram.com/${this.apiVersion}/me/messages`;
+  async sendDirectMessage(options: SendMessageOptions): Promise<{
+    success: boolean;
+    messageId?: string;
+    recipientId?: string;
+    httpStatus?: number;
+    errorCode?: number;
+    errorType?: string;
+    errorSubcode?: number;
+    error?: string;
+  }> {
+    const url = `https://graph.instagram.com/${this.apiVersion}/me/messages?access_token=${encodeURIComponent(options.accessToken)}`;
 
     try {
       if (!options.accessToken || options.accessToken.includes('mock')) {
         console.log(`[InstagramConnector] Mock DM sent to ${options.recipientId}: ${options.content}`);
-        return { success: true, messageId: `mock_ig_msg_${Date.now()}` };
+        return {
+          success: true,
+          messageId: `mock_ig_msg_${Date.now()}`,
+          recipientId: options.recipientId,
+          httpStatus: 200,
+        };
       }
 
       const res = await fetch(url, {
@@ -145,14 +159,31 @@ export class InstagramConnector implements PlatformConnector {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        return { success: false, error: data.error?.message || 'Instagram Graph API request failed' };
+        return {
+          success: false,
+          httpStatus: res.status,
+          errorCode: data.error?.code,
+          errorType: data.error?.type,
+          errorSubcode: data.error?.error_subcode,
+          error: data.error?.message || `Instagram Graph API request failed with status ${res.status}`,
+        };
       }
 
-      return { success: true, messageId: data.message_id };
+      return {
+        success: true,
+        messageId: data.message_id || data.id || `ig_msg_${Date.now()}`,
+        recipientId: data.recipient_id || options.recipientId,
+        httpStatus: res.status,
+      };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Network error' };
+      return {
+        success: false,
+        httpStatus: 500,
+        error: err.message || 'Network error during Instagram DM send',
+      };
     }
   }
 
