@@ -72,10 +72,9 @@ export function getFallbackResponse(language: CustomerLanguage): string {
 export function sanitizeResponseLength(response: string): string {
   if (!response) return '';
 
-  // Split sentences by period, exclamation, or question mark
   const sentences = response.match(/[^.!?]+[.!?]+/g) || [response];
   if (sentences.length > 2) {
-    return sentences.slice(0, 2).join(' ').trim();
+    return sentences.slice(0, 2).map(s => s.trim()).join(' ').trim();
   }
-  return response.trim();
+  return response.replace(/\s+/g, ' ').trim();
 }

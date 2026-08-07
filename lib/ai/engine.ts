@@ -11,6 +11,8 @@ export interface AIEngineResponse {
   isSafeForAutoReply: boolean;
   requiresHumanReview: boolean;
   suggestedReply: string;
+  ruleMatchFound: boolean;
+  replySource: 'predefined_rule' | 'positive_comment' | 'ai_fallback';
   reason?: string;
 }
 
@@ -36,53 +38,61 @@ export function generateAIReply(
       isSafeForAutoReply: false,
       requiresHumanReview: true,
       suggestedReply: getFallbackResponse(detectedLanguage),
+      ruleMatchFound: false,
+      replySource: 'ai_fallback',
       reason: classificationResult.reason || 'Flagged for human review by safety classifier',
     };
   }
 
   // Step 4: Handle Positive Feedback Comments
   if (channelType === 'comment' && classificationResult.classification === 'positive') {
-    if (rules.auto_reply_positive_comments) {
+    if (rules.auto_reply_positive_comments !== false) {
       const variedReply = generateVariedPublicReply('positive', detectedLanguage);
       return {
         detectedLanguage,
         classification: 'positive',
-        confidenceScore: 0.95,
+        confidenceScore: 1.0,
         isSafeForAutoReply: true,
         requiresHumanReview: false,
         suggestedReply: variedReply,
+        ruleMatchFound: true,
+        replySource: 'positive_comment',
+        reason: 'Matched positive comment rule',
       };
     }
   }
 
-  // Step 5: Query Factual Knowledge Base (Zero-hallucination constraint)
+  // Step 5: Query Deterministic Predefined Rules & Knowledge Base
   const kbResult = queryKnowledgeBase(input, kb, menu, detectedLanguage);
 
   if (kbResult.found && kbResult.factSummary) {
     const rawReply = sanitizeResponseLength(kbResult.factSummary);
-    const confidenceScore = 0.92;
+    const isAutoSendEnabled = rules.auto_reply_factual_questions !== false;
 
-    // Check against configured minimum confidence threshold
-    const meetsThreshold = confidenceScore >= rules.min_confidence_score;
-
+    // Deterministic rule matches do NOT depend on AI confidence thresholds
     return {
       detectedLanguage,
       classification: 'question',
-      confidenceScore,
-      isSafeForAutoReply: meetsThreshold && rules.auto_reply_factual_questions,
-      requiresHumanReview: !meetsThreshold,
+      confidenceScore: 1.0,
+      isSafeForAutoReply: isAutoSendEnabled,
+      requiresHumanReview: !isAutoSendEnabled,
       suggestedReply: rawReply,
+      ruleMatchFound: true,
+      replySource: 'predefined_rule',
+      reason: isAutoSendEnabled ? 'Matched deterministic predefined rule' : 'Rule matched but auto-reply disabled by tenant configuration',
     };
   }
 
-  // Step 6: Unknown Factual Query -> Zero Hallucination Fallback
+  // Step 6: Unknown / Unmatched Query Fallback
   return {
     detectedLanguage,
     classification: 'question',
-    confidenceScore: 0.40, // Below threshold
+    confidenceScore: 0.40, // Below threshold fallback
     isSafeForAutoReply: false,
     requiresHumanReview: true,
     suggestedReply: getFallbackResponse(detectedLanguage),
+    ruleMatchFound: false,
+    replySource: 'ai_fallback',
     reason: 'Information unavailable in knowledge base. Transferred to human team.',
   };
 }

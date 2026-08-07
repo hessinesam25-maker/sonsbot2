@@ -43,8 +43,46 @@ describe('AI Engine, Multi-Lingual & Guardrails Test Suite', () => {
     expect(detectLanguage('Random unknown string 123')).toBe('nl'); // Fallback to Belgian Dutch
   });
 
+  it('should treat factual/predefined rule match as auto-reply eligible without depending on AI confidence score thresholds', () => {
+    const strictRules: AutomationRules = {
+      ...mockRules,
+      min_confidence_score: 0.99, // Unreachable AI score
+      auto_reply_factual_questions: true,
+    };
+
+    const res = generateAIReply('Wat zijn de openingsuren in Gent?', 'dm', mockKb, mockMenu, strictRules);
+    expect(res.ruleMatchFound).toBe(true);
+    expect(res.replySource).toBe('predefined_rule');
+    expect(res.isSafeForAutoReply).toBe(true);
+    expect(res.requiresHumanReview).toBe(false);
+    expect(res.confidenceScore).toBe(1.0);
+    expect(res.suggestedReply).toContain('Onze openingsuren in Gent');
+  });
+
+  it('should match common greetings deterministically as auto-reply eligible', () => {
+    const res = generateAIReply('Hallo!', 'dm', mockKb, mockMenu, mockRules);
+    expect(res.ruleMatchFound).toBe(true);
+    expect(res.isSafeForAutoReply).toBe(true);
+    expect(res.requiresHumanReview).toBe(false);
+    expect(res.suggestedReply).toContain('Hallo! Welkom bij');
+  });
+
+  it('should respect disabled auto_reply_factual_questions setting', () => {
+    const disabledRules: AutomationRules = {
+      ...mockRules,
+      auto_reply_factual_questions: false,
+    };
+
+    const res = generateAIReply('Wat is het adres?', 'dm', mockKb, mockMenu, disabledRules);
+    expect(res.ruleMatchFound).toBe(true);
+    expect(res.isSafeForAutoReply).toBe(false);
+    expect(res.requiresHumanReview).toBe(true);
+  });
+
   it('should enforce zero-hallucination policy when facts are unavailable', () => {
     const res = generateAIReply('Serveert u ook kaviaar en champagne?', 'dm', mockKb, mockMenu, mockRules);
+    expect(res.ruleMatchFound).toBe(false);
+    expect(res.replySource).toBe('ai_fallback');
     expect(res.isSafeForAutoReply).toBe(false);
     expect(res.requiresHumanReview).toBe(true);
     expect(res.suggestedReply).toContain('Een medewerker van ons team reageert zo snel mogelijk');

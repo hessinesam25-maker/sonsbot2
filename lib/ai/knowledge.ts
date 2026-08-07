@@ -18,7 +18,25 @@ export function queryKnowledgeBase(
 ): KBQueryResult {
   const lower = query.toLowerCase();
 
-  // 1. Address & Directions
+  // 1. Opening Hours & Holiday Hours
+  if (lower.includes('open') || lower.includes('openingsuren') || lower.includes('uren') || lower.includes('gesloten') || lower.includes('hours') || lower.includes('horaires')) {
+    const hoursText = `Ma: ${kb.opening_hours.monday}, Di: ${kb.opening_hours.tuesday}, Wo: ${kb.opening_hours.wednesday}, Do: ${kb.opening_hours.thursday}, Vr: ${kb.opening_hours.friday}, Za: ${kb.opening_hours.saturday}, Zo: ${kb.opening_hours.sunday}`;
+    if (language === 'nl') {
+      return {
+        found: true,
+        factSummary: `Onze openingsuren in Gent: ${hoursText}.`,
+        sourceCategory: 'hours',
+      };
+    } else {
+      return {
+        found: true,
+        factSummary: `Our opening hours in Ghent: Mon-Fri 08:00-18:00, Sat-Sun 09:00-18:00.`,
+        sourceCategory: 'hours',
+      };
+    }
+  }
+
+  // 2. Address & Directions
   if (lower.includes('adres') || lower.includes('waar') || lower.includes('location') || lower.includes('address') || lower.includes('gent') || lower.includes('route')) {
     if (language === 'nl') {
       return {
@@ -43,24 +61,6 @@ export function queryKnowledgeBase(
         found: true,
         factSummary: `We are located at ${kb.address} in Ghent. Find us on Google Maps: ${kb.google_maps_url}`,
         sourceCategory: 'location',
-      };
-    }
-  }
-
-  // 2. Opening Hours & Holiday Hours
-  if (lower.includes('open') || lower.includes('openingsuren') || lower.includes('uren') || lower.includes('gesloten') || lower.includes('hours') || lower.includes('horaires')) {
-    const hoursText = `Ma: ${kb.opening_hours.monday}, Di: ${kb.opening_hours.tuesday}, Wo: ${kb.opening_hours.wednesday}, Do: ${kb.opening_hours.thursday}, Vr: ${kb.opening_hours.friday}, Za: ${kb.opening_hours.saturday}, Zo: ${kb.opening_hours.sunday}`;
-    if (language === 'nl') {
-      return {
-        found: true,
-        factSummary: `Onze openingsuren in Gent: ${hoursText}.`,
-        sourceCategory: 'hours',
-      };
-    } else {
-      return {
-        found: true,
-        factSummary: `Our opening hours in Ghent: Mon-Fri 08:00-18:00, Sat-Sun 09:00-18:00.`,
-        sourceCategory: 'hours',
       };
     }
   }
@@ -141,13 +141,74 @@ export function queryKnowledgeBase(
   }
 
   // 7. Check FAQs
-  for (const faq of kb.faqs) {
-    const qText = faq.question[language] || faq.question['nl'];
-    if (lower.includes(qText.toLowerCase()) || qText.toLowerCase().split(' ').some(w => w.length > 4 && lower.includes(w))) {
+  for (const faq of (kb.faqs || [])) {
+    const qText = faq.question[language] || faq.question['nl'] || '';
+    if (qText && (lower.includes(qText.toLowerCase()) || qText.toLowerCase().split(' ').some(w => w.length > 4 && lower.includes(w)))) {
       return {
         found: true,
         factSummary: faq.answer[language] || faq.answer['nl'],
         sourceCategory: 'faq',
+      };
+    }
+  }
+
+  // 8. Greetings & General DM hospitality rules
+  if (
+    lower.includes('hallo') ||
+    lower.includes('hello') ||
+    lower.includes('hi') ||
+    lower.includes('goeiedag') ||
+    lower.includes('goedemorgen') ||
+    lower.includes('goedenavond') ||
+    lower.includes('hey') ||
+    lower.includes('hoi') ||
+    lower.includes('welkom')
+  ) {
+    if (language === 'nl') {
+      return {
+        found: true,
+        factSummary: `Hallo! Welkom bij ${kb.cafe_name || 'onze zaak'} in Gent. Hoe kunnen we je vandaag helpen? Onze openingsuren, adres en menu vind je op onze pagina!`,
+        sourceCategory: 'greeting',
+      };
+    } else if (language === 'fr') {
+      return {
+        found: true,
+        factSummary: `Bonjour! Bienvenue chez ${kb.cafe_name || 'notre café'} à Gand. Comment pouvons-nous vous aider aujourd'hui?`,
+        sourceCategory: 'greeting',
+      };
+    } else if (language === 'ar') {
+      return {
+        found: true,
+        factSummary: `مرحباً بك! كيف يمكننا مساعدتك اليوم؟`,
+        sourceCategory: 'greeting',
+      };
+    } else {
+      return {
+        found: true,
+        factSummary: `Hello! Welcome to ${kb.cafe_name || 'our cafe'} in Ghent. How can we help you today?`,
+        sourceCategory: 'greeting',
+      };
+    }
+  }
+
+  if (
+    lower.includes('dank') ||
+    lower.includes('bedankt') ||
+    lower.includes('thanks') ||
+    lower.includes('thank you') ||
+    lower.includes('merci')
+  ) {
+    if (language === 'nl') {
+      return {
+        found: true,
+        factSummary: `Graag gedaan! Als je nog vragen hebt, laat het ons gerust weten. Fijne dag verder!`,
+        sourceCategory: 'politeness',
+      };
+    } else {
+      return {
+        found: true,
+        factSummary: `You're welcome! Let us know if you have any other questions. Have a great day!`,
+        sourceCategory: 'politeness',
       };
     }
   }

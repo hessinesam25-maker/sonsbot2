@@ -328,6 +328,16 @@ export async function POST(req: NextRequest) {
 
           await db.updateConversation(conv.id, { customer_language: aiResponse.detectedLanguage });
 
+          console.info('[RULE_REPLY_DIAGNOSTIC]', JSON.stringify({
+            rule_match_found: aiResponse.ruleMatchFound,
+            rule_enabled: rules.auto_reply_factual_questions !== false,
+            reply_configured: Boolean(aiResponse.suggestedReply),
+            reply_source: aiResponse.replySource || 'predefined_rule',
+            legacy_confidence_gate_applied: false,
+            auto_send_eligible: aiResponse.isSafeForAutoReply && !aiResponse.requiresHumanReview,
+            human_review_required: aiResponse.requiresHumanReview,
+          }));
+
           if (aiResponse.requiresHumanReview || !aiResponse.isSafeForAutoReply) {
             await db.updateConversation(conv.id, { 
               status: 'needs_human_review',
