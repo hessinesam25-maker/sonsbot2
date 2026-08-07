@@ -121,4 +121,20 @@ describe('Real Supabase SSR Authentication & Session Test Suite', () => {
     expect(validAttempt.authorized).toBe(true);
     expect(validAttempt.source).toBe('server_cookie');
   });
+
+  it('11. Public /privacy route is accessible without authentication and does not redirect to /login', () => {
+    const middlewareContent = fs.readFileSync(path.join(__dirname, '../middleware.ts'), 'utf-8');
+    
+    // Ensure matcher does not catch /privacy
+    expect(middlewareContent).toContain("'/dashboard/:path*'");
+    expect(middlewareContent).not.toContain("'/privacy'");
+
+    const privacyPageContent = fs.readFileSync(path.join(__dirname, '../app/privacy/page.tsx'), 'utf-8');
+    expect(privacyPageContent).toContain('Privacy Policy');
+    expect(privacyPageContent).toContain('Instagram Professional account');
+    expect(privacyPageContent).toContain('Direct Messages');
+    expect(privacyPageContent).toContain('No Data Selling');
+    expect(privacyPageContent).toContain('privacy@gentsecafe.be');
+    expect(privacyPageContent).toContain('/api/auth/instagram/data-deletion');
+  });
 });

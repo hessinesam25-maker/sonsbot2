@@ -173,6 +173,14 @@ export default function LoginPage() {
             <LogIn size={18} /> {loading ? t('login.authenticating') : t('login.signInButton')}
           </button>
         </form>
+        <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
+          <a 
+            href="/privacy" 
+            style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', textDecoration: 'none' }}
+          >
+            Privacy Policy
+          </a>
+        </div>
       </div>
     </div>
   );
