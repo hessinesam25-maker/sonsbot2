@@ -1,5 +1,18 @@
 import { PlatformConnector, WebhookEventPayload, SendMessageOptions, SendCommentReplyOptions } from './types';
 import { verifyMetaSignature } from '../security/signatures';
+import crypto from 'crypto';
+
+function generateStableIdempotencyKey(
+  prefix: 'ig_msg' | 'ig_cmt',
+  senderId: string,
+  recipientId: string | undefined,
+  timestamp: number | string,
+  content: string
+): string {
+  const hashInput = `${prefix}:${senderId}:${recipientId || ''}:${timestamp}:${content}`;
+  const hashHex = crypto.createHash('sha256').update(hashInput).digest('hex').slice(0, 16);
+  return `${prefix}_det_${senderId}_${hashHex}`;
+}
 
 export class InstagramConnector implements PlatformConnector {
   platform: 'instagram' = 'instagram';
@@ -33,9 +46,9 @@ export class InstagramConnector implements PlatformConnector {
             const senderId = String(msg.sender?.id || 'unknown');
             const timestampMs = msg.timestamp || Date.now();
             const explicitMid = msg.message.mid || msg.mid || msg.message_id;
-            const externalId = explicitMid && String(explicitMid) !== entryAccountId
+            const externalId = explicitMid && String(explicitMid) !== entryAccountId && String(explicitMid) !== senderId
               ? String(explicitMid)
-              : `ig_msg_${senderId}_${timestampMs}_${crypto.randomUUID().slice(0, 8)}`;
+              : generateStableIdempotencyKey('ig_msg', senderId, recipientId, timestampMs, msg.message.text);
 
             events.push({
               platform: 'instagram',
@@ -63,7 +76,7 @@ export class InstagramConnector implements PlatformConnector {
             const commentId = val.id || val.comment_id;
             const externalId = commentId && String(commentId) !== entryAccountId
               ? String(commentId)
-              : `ig_cmt_${val.from?.id || 'unk'}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+              : generateStableIdempotencyKey('ig_cmt', val.from?.id || 'unk', entryAccountId, val.created_time || Date.now(), val.text || '');
 
             events.push({
               platform: 'instagram',
@@ -89,10 +102,10 @@ export class InstagramConnector implements PlatformConnector {
                 const recipientId = item.recipient?.id ? String(item.recipient.id) : entryAccountId;
                 const senderId = String(item.sender?.id || 'unknown');
                 const timestampMs = item.timestamp || Date.now();
-                const explicitMid = msgData.mid || item.mid || msgData.message_id || msgData.id;
+                const explicitMid = msgData.mid || item.mid || msgData.message_id;
                 const externalId = explicitMid && String(explicitMid) !== entryAccountId && String(explicitMid) !== senderId
                   ? String(explicitMid)
-                  : `ig_msg_${senderId}_${timestampMs}_${crypto.randomUUID().slice(0, 8)}`;
+                  : generateStableIdempotencyKey('ig_msg', senderId, recipientId, timestampMs, msgData.text);
 
                 events.push({
                   platform: 'instagram',

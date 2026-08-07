@@ -738,6 +738,31 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         return await POST(req);
       };
 
+      const sendWebhookNoMidMsg = async (senderId: string, timestamp: number, text: string) => {
+        const payload = {
+          object: 'instagram',
+          entry: [
+            {
+              id: '17841400011111111', // Connected Professional Account ID shared by both senders
+              messaging: [
+                {
+                  sender: { id: senderId },
+                  recipient: { id: '17841400011111111' },
+                  timestamp,
+                  message: { text } // No mid provided!
+                }
+              ]
+            }
+          ]
+        };
+        const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        return await POST(req);
+      };
+
       const getCustomerMsgs = (list: any[]) => list.filter(m => m.sender_type === 'customer');
 
       // 1. Sender A message MID-1
@@ -759,16 +784,27 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       // 4. Meta retry MID-2 from Sender A -> MUST be ignored as duplicate
       await sendWebhookMsg('sender_A', 'mid_002', 'Second DM from sender A');
       customerMsgsA = getCustomerMsgs(storedMessagesSenderA);
-      // Count remains 3 (duplicate skipped!)
       expect(customerMsgsA.length).toBe(3);
 
-      // 5. Sender B message MID-4 (human_takeover is active on Sender B)
-      await sendWebhookMsg('sender_B', 'mid_004', 'Message from sender B during human takeover');
+      // 5. No-mid payload delivered twice -> stored once using deterministic fallback key
+      const fixedTs = 1770000000000;
+      await sendWebhookNoMidMsg('sender_A', fixedTs, 'No-mid message');
+      customerMsgsA = getCustomerMsgs(storedMessagesSenderA);
+      expect(customerMsgsA.length).toBe(4);
+      const noMidKey1 = customerMsgsA[3].external_message_id;
+      expect(noMidKey1).toContain('ig_msg_det_sender_A_');
+
+      // Retry exact same no-mid payload -> MUST produce exact same key and be ignored as duplicate
+      await sendWebhookNoMidMsg('sender_A', fixedTs, 'No-mid message');
+      customerMsgsA = getCustomerMsgs(storedMessagesSenderA);
+      expect(customerMsgsA.length).toBe(4); // Remained 4!
+
+      // 6. Sender B to the SAME recipient/business account (entry.id = "17841400011111111")
+      await sendWebhookMsg('sender_B', 'mid_004', 'Message from sender B to same business account');
       const customerMsgsB = getCustomerMsgs(storedMessagesSenderB);
-      // Inbound customer message MUST be stored despite human_takeover!
       expect(customerMsgsB.length).toBe(1);
       expect(customerMsgsB[0].external_message_id).toBe('mid_004');
-    });
+    }, 15000);
   });
 });
 
