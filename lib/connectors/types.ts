@@ -4,6 +4,7 @@ export interface WebhookEventPayload {
   externalId: string;
   senderId: string;
   senderName: string;
+  recipientId?: string;
   content: string;
   timestamp: string;
   mediaId?: string;

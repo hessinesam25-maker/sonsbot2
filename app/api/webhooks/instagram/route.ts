@@ -125,22 +125,54 @@ export async function POST(req: NextRequest) {
     const allConnections = await db.getConnections();
     const igConnections = allConnections.filter(c => c.platform === 'instagram' && c.is_active);
 
+    console.info('[WEBHOOK_POST_DIAGNOSTIC]', JSON.stringify({
+      webhook_object_type: payload?.object || 'unknown',
+      events_count: events.length,
+      active_connections_count: igConnections.length,
+    }));
+
     if (igConnections.length === 0) {
       console.warn('Rejected webhook: No active Instagram platform connection found.');
       return NextResponse.json({ error: 'Disconnected or unknown platform account' }, { status: 403 });
     }
 
     for (const event of events) {
-      // Find exact tenant connection matching the Instagram account recipient or entry ID
-      const targetConn = igConnections.find(c => c.account_id === (event.rawPayload?.recipient?.id || event.rawPayload?.media?.owner?.id)) || igConnections[0];
+      const recipientAccountId = event.recipientId || event.rawPayload?.recipient?.id || event.rawPayload?.media?.owner?.id;
+
+      // Find exact tenant connection matching account_id, or default to igConnections[0] if single connection exists
+      const targetConn = (recipientAccountId ? igConnections.find(c => c.account_id === recipientAccountId) : undefined) ||
+        (igConnections.length === 1 ? igConnections[0] : undefined);
 
       if (!targetConn) {
-        console.warn(`No matching platform connection for Instagram event from ${event.senderId}`);
+        console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
+          webhook_object_type: payload?.object || 'unknown',
+          event_field_type: event.eventType,
+          entry_account_id: recipientAccountId || 'unknown',
+          sender_id_present: Boolean(event.senderId),
+          recipient_id_present: Boolean(event.recipientId),
+          connection_found: false,
+          tenant_id_present: false,
+          conversation_created: false,
+          message_inserted: false,
+          ignored_reason: 'No matching active platform connection found for account ID',
+        }));
         continue;
       }
 
       // Prevent bot from replying to its own outgoing messages (message echoes)
       if (event.senderId === targetConn.account_id) {
+        console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
+          webhook_object_type: payload?.object || 'unknown',
+          event_field_type: event.eventType,
+          entry_account_id: recipientAccountId || targetConn.account_id,
+          sender_id_present: Boolean(event.senderId),
+          recipient_id_present: Boolean(event.recipientId),
+          connection_found: true,
+          tenant_id_present: Boolean(targetConn.tenant_id),
+          conversation_created: false,
+          message_inserted: false,
+          ignored_reason: 'Self-generated outgoing message echo from bot account',
+        }));
         continue;
       }
 
@@ -158,7 +190,18 @@ export async function POST(req: NextRequest) {
         });
 
       if (idempotencyErr && (idempotencyErr.code === '23505' || idempotencyErr.message?.includes('unique constraint'))) {
-        console.log(`[Idempotency] Skipping duplicate webhook event: ${event.externalId} for tenant: ${authoritativeTenantId}`);
+        console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
+          webhook_object_type: payload?.object || 'unknown',
+          event_field_type: event.eventType,
+          entry_account_id: recipientAccountId || targetConn.account_id,
+          sender_id_present: Boolean(event.senderId),
+          recipient_id_present: Boolean(event.recipientId),
+          connection_found: true,
+          tenant_id_present: Boolean(authoritativeTenantId),
+          conversation_created: false,
+          message_inserted: false,
+          ignored_reason: 'Duplicate event_id skipped by idempotency check',
+        }));
         continue;
       }
 
@@ -170,18 +213,31 @@ export async function POST(req: NextRequest) {
       if (event.eventType === 'message') {
         let conversations = await db.getConversations(authoritativeTenantId);
 
-        let existingMessages = [];
+        let existingMessages: any[] = [];
         let conv = conversations.find(c => c.external_id === event.senderId || c.customer_id === event.senderId);
+
         if (conv) {
           existingMessages = await db.getMessages(conv.id);
           const alreadyProcessed = existingMessages.some(m => m.external_message_id === event.externalId);
           if (alreadyProcessed) {
-            console.log(`Skipping duplicate webhook DM event: ${event.externalId}`);
+            console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
+              webhook_object_type: payload?.object || 'unknown',
+              event_field_type: event.eventType,
+              entry_account_id: recipientAccountId || targetConn.account_id,
+              sender_id_present: Boolean(event.senderId),
+              recipient_id_present: Boolean(event.recipientId),
+              connection_found: true,
+              tenant_id_present: Boolean(authoritativeTenantId),
+              conversation_created: false,
+              message_inserted: false,
+              ignored_reason: 'Duplicate DM message ID already processed',
+            }));
             continue;
           }
         } else {
-          conv = {
-            id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          // Persist new conversation to Supabase DB so Foreign Key constraints succeed
+          conv = await db.createConversation({
+            id: crypto.randomUUID(),
             tenant_id: authoritativeTenantId,
             platform: 'instagram',
             channel_type: 'dm',
@@ -193,12 +249,11 @@ export async function POST(req: NextRequest) {
             human_takeover: false,
             auto_reply_enabled: true,
             last_message_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-          };
+          });
         }
 
         // Add incoming customer message under authoritative tenant
-        await db.addMessage({
+        const insertedMsg = await db.addMessage({
           conversation_id: conv.id,
           tenant_id: authoritativeTenantId,
           sender_type: 'customer',
@@ -207,6 +262,19 @@ export async function POST(req: NextRequest) {
           sanitized_content: sanitizedText,
           status: 'received',
         });
+
+        console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
+          webhook_object_type: payload?.object || 'unknown',
+          event_field_type: event.eventType,
+          entry_account_id: recipientAccountId || targetConn.account_id,
+          sender_id_present: Boolean(event.senderId),
+          recipient_id_present: Boolean(event.recipientId),
+          connection_found: true,
+          tenant_id_present: Boolean(authoritativeTenantId),
+          conversation_created: Boolean(conv),
+          message_inserted: Boolean(insertedMsg),
+          ignored_reason: null,
+        }));
 
         // Run AI Engine if Human Takeover is disabled & Auto-reply is enabled
         if (!conv.human_takeover && conv.auto_reply_enabled) {
@@ -292,7 +360,18 @@ export async function POST(req: NextRequest) {
         const existingComments = await db.getComments(authoritativeTenantId);
         const alreadyProcessed = existingComments.some(c => c.external_comment_id === event.externalId);
         if (alreadyProcessed) {
-          console.log(`Skipping duplicate webhook comment event: ${event.externalId}`);
+          console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
+            webhook_object_type: payload?.object || 'unknown',
+            event_field_type: event.eventType,
+            entry_account_id: recipientAccountId || targetConn.account_id,
+            sender_id_present: Boolean(event.senderId),
+            recipient_id_present: Boolean(event.recipientId),
+            connection_found: true,
+            tenant_id_present: Boolean(authoritativeTenantId),
+            conversation_created: false,
+            message_inserted: false,
+            ignored_reason: 'Duplicate comment ID already processed',
+          }));
           continue;
         }
 
@@ -325,6 +404,19 @@ export async function POST(req: NextRequest) {
           reply_content: isAutoReplied ? replyContent : undefined,
           is_hidden: aiResponse.classification === 'spam' && rules.hide_spam,
         });
+
+        console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
+          webhook_object_type: payload?.object || 'unknown',
+          event_field_type: event.eventType,
+          entry_account_id: recipientAccountId || targetConn.account_id,
+          sender_id_present: Boolean(event.senderId),
+          recipient_id_present: Boolean(event.recipientId),
+          connection_found: true,
+          tenant_id_present: Boolean(authoritativeTenantId),
+          conversation_created: false,
+          message_inserted: false,
+          ignored_reason: null,
+        }));
 
         await db.addAuditLog({
           tenant_id: authoritativeTenantId,

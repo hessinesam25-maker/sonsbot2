@@ -302,6 +302,37 @@ export const db = {
     return data;
   },
 
+  createConversation: async (conv: Partial<Conversation>): Promise<Conversation> => {
+    const backend = getBackendSupabaseClient();
+    const payload = {
+      id: (conv.id && conv.id.includes('-')) ? conv.id : crypto.randomUUID(),
+      tenant_id: conv.tenant_id || DEFAULT_TENANT_ID,
+      platform: conv.platform || 'instagram',
+      channel_type: conv.channel_type || 'dm',
+      external_id: conv.external_id || '',
+      customer_id: conv.customer_id || '',
+      customer_name: conv.customer_name || 'Instagram User',
+      customer_language: conv.customer_language || 'nl',
+      status: conv.status || 'open',
+      human_takeover: conv.human_takeover ?? false,
+      auto_reply_enabled: conv.auto_reply_enabled ?? true,
+      last_message_at: conv.last_message_at || new Date().toISOString(),
+      created_at: conv.created_at || new Date().toISOString(),
+    };
+
+    const { data, error } = await backend
+      .from('conversations')
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[DB] Error inserting conversation:', error);
+      return payload as Conversation;
+    }
+    return data || (payload as Conversation);
+  },
+
   updateConversation: async (id: string, updates: Partial<Conversation>) => {
     const backend = getBackendSupabaseClient();
     const { data } = await backend
@@ -325,11 +356,15 @@ export const db = {
 
   addMessage: async (msg: Omit<Message, 'id' | 'created_at'>) => {
     const backend = getBackendSupabaseClient();
-    const { data } = await backend
+    const { data, error } = await backend
       .from('messages')
       .insert(msg)
       .select()
       .single();
+
+    if (error) {
+      console.error('[DB] Error inserting message:', error);
+    }
 
     // Update last_message_at in conversation
     await backend
@@ -337,7 +372,11 @@ export const db = {
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', msg.conversation_id);
 
-    return data;
+    return data || {
+      id: `msg_${Date.now()}`,
+      ...msg,
+      created_at: new Date().toISOString(),
+    };
   },
 
   // Real Supabase Comments

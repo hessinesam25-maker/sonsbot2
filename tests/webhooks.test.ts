@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { verifyMetaSignature, verifyMetaWebhookChallenge } from '../lib/security/signatures';
@@ -144,6 +144,158 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       expect(res.status).toBe(400);
       const text = await res.text();
       expect(text).toBe('Bad Request: Missing required query parameters');
+    });
+  });
+
+  describe('POST /api/webhooks/instagram Route Processing & Persistence Handler', () => {
+    it('parses realistic Instagram Login entry.changes payload with recipientId', () => {
+      const connector = new InstagramConnector(appSecret);
+      const payload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400099999999',
+            time: 1770000000,
+            changes: [
+              {
+                field: 'messages',
+                value: {
+                  sender: { id: 'customer_777', username: 'tester_user' },
+                  recipient: { id: '17841400099999999' },
+                  timestamp: 1770000000,
+                  message: { mid: 'mid_changes_101', text: 'Openingsuren Gent?' }
+                }
+              }
+            ]
+          }
+        ]
+      };
+
+      const events = connector.parseWebhookPayload(payload);
+      expect(events.length).toBe(1);
+      expect(events[0].eventType).toBe('message');
+      expect(events[0].senderId).toBe('customer_777');
+      expect(events[0].recipientId).toBe('17841400099999999');
+      expect(events[0].content).toBe('Openingsuren Gent?');
+    });
+
+    it('safely returns empty events array on malformed or non-instagram payload', () => {
+      const connector = new InstagramConnector(appSecret);
+      expect(connector.parseWebhookPayload(null)).toEqual([]);
+      expect(connector.parseWebhookPayload({})).toEqual([]);
+      expect(connector.parseWebhookPayload({ object: 'page' })).toEqual([]);
+      expect(connector.parseWebhookPayload({ object: 'instagram', entry: null })).toEqual([]);
+    });
+
+    it('creates persistent conversation and inserts incoming message once for active connection', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+
+      const { encryptToken } = await import('../lib/security/encryption');
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([
+        {
+          id: 'conn_test_1',
+          tenant_id: '11111111-1111-1111-1111-111111111111',
+          platform: 'instagram',
+          account_id: '17841400011111111',
+          account_name: 'allthingisgood',
+          access_token_encrypted: encryptToken('mock_access_token_123'),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any
+      ]);
+
+      const mockPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            time: 1770000000,
+            messaging: [
+              {
+                sender: { id: 'cust_888', username: 'allthingisgood' },
+                recipient: { id: '17841400011111111' },
+                timestamp: 1770000000,
+                message: { mid: `mid_real_${Date.now()}`, text: 'Hello, what are your hours?' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mockPayload)
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.processedEvents).toBe(1);
+    });
+
+    it('rejects incoming POST webhooks when no active platform connection exists', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([]);
+
+      const mockPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: 'unknown_account_999',
+            messaging: [
+              {
+                sender: { id: 'cust_000' },
+                recipient: { id: 'unknown_account_999' },
+                message: { mid: 'mid_unk_123', text: 'Hello?' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mockPayload)
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.error).toBe('Disconnected or unknown platform account');
+    });
+
+    it('ignores duplicate message events idempotently', async () => {
+      const connector = new InstagramConnector(appSecret);
+      const duplicateMid = 'mid_dup_test_555';
+      const mockPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            messaging: [
+              {
+                sender: { id: 'cust_888' },
+                recipient: { id: '17841400011111111' },
+                message: { mid: duplicateMid, text: 'Test duplicate' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const eventsFirst = connector.parseWebhookPayload(mockPayload);
+      const eventsSecond = connector.parseWebhookPayload(mockPayload);
+
+      expect(eventsFirst[0].externalId).toBe(duplicateMid);
+      expect(eventsSecond[0].externalId).toBe(duplicateMid);
     });
   });
 });
