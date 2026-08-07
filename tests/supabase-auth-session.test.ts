@@ -134,7 +134,8 @@ describe('Real Supabase SSR Authentication & Session Test Suite', () => {
     expect(privacyPageContent).toContain('Instagram Professional account');
     expect(privacyPageContent).toContain('Direct Messages');
     expect(privacyPageContent).toContain('No Data Selling');
-    expect(privacyPageContent).toContain('privacy@gentsecafe.be');
-    expect(privacyPageContent).toContain('/api/auth/instagram/data-deletion');
+    expect(privacyPageContent).toContain('hessinesam25@gmail.com');
+    expect(privacyPageContent).toContain('predefined rules');
+    expect(privacyPageContent).toContain('dir="ltr"');
   });
 });

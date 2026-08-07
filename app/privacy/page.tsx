@@ -3,13 +3,15 @@ import Link from 'next/link';
 import { Shield, Lock, Trash2, Mail, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 export const metadata = {
-  title: 'Privacy Policy | Restaurant Social Platform',
-  description: 'Privacy Policy and Data Protection Information for Instagram API Integration',
+  title: 'Privacy Policy | Instagram Bot',
+  description: 'Privacy Policy and Data Protection Information for Instagram Integration',
 };
 
 export default function PrivacyPolicyPage() {
   return (
     <div
+      dir="ltr"
+      lang="en"
       style={{
         minHeight: '100vh',
         background: 'var(--bg-primary, #090d16)',
@@ -19,6 +21,7 @@ export default function PrivacyPolicyPage() {
         flexDirection: 'column',
         alignItems: 'center',
         fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        textAlign: 'left',
       }}
     >
       <div style={{ maxWidth: '800px', width: '100%', marginBottom: '1.5rem' }}>
@@ -53,6 +56,7 @@ export default function PrivacyPolicyPage() {
           backdropFilter: 'blur(12px)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
+          textAlign: 'left',
         }}
       >
         <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
@@ -73,7 +77,7 @@ export default function PrivacyPolicyPage() {
           </div>
           <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.5rem' }}>Privacy Policy</h1>
           <p style={{ color: 'var(--text-secondary, #94a3b8)', fontSize: '0.95rem' }}>
-            Instagram Integration & Data Processing Transparency • Last updated: August 2026
+            Instagram Integration & Data Processing Policy • Last updated: August 2026
           </p>
         </div>
 
@@ -84,7 +88,7 @@ export default function PrivacyPolicyPage() {
               <Lock size={20} /> 1. Overview & Service Purpose
             </h2>
             <p style={{ color: 'var(--text-secondary, #cbd5e1)' }}>
-              Our platform provides automated customer support, AI assistant responses, and social inbox management for restaurant and business Instagram Professional accounts. We interact with Meta/Instagram Graph APIs strictly to deliver these automated interaction and support services.
+              Our application provides automated customer-support replies for connected Instagram Professional accounts based on predefined rules and configured responses. We interact with the Instagram Graph API strictly to process incoming messages and comments to send these automated responses.
             </p>
           </section>
 
@@ -94,58 +98,56 @@ export default function PrivacyPolicyPage() {
               <CheckCircle2 size={20} /> 2. Data We Process
             </h2>
             <p style={{ color: 'var(--text-secondary, #cbd5e1)', marginBottom: '0.75rem' }}>
-              When a business connects their Instagram Professional account to our service, we process the following minimum necessary data:
+              When an Instagram Professional account connects to our application, we process the following data:
             </p>
             <ul style={{ paddingLeft: '1.5rem', color: 'var(--text-secondary, #cbd5e1)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <li><strong>Account Identifiers:</strong> Instagram Professional account ID, username, and encrypted access tokens.</li>
-              <li><strong>Direct Messages (DMs):</strong> Incoming customer inquiries sent to the business account to generate automated AI responses or forward to human support staff.</li>
-              <li><strong>Comments & Mentions:</strong> Public post comments and post owner IDs for automated moderation and reply triggers.</li>
-              <li><strong>Sender Metadata:</strong> Customer username/ID and timestamps required to maintain conversation threads.</li>
+              <li><strong>Direct Messages:</strong> Messages received by the connected Instagram account to trigger rule-based replies.</li>
+              <li><strong>Comments:</strong> Comments left on the connected Instagram account posts for automated keyword and rule matching.</li>
+              <li><strong>Sender Metadata:</strong> Basic sender identifiers (such as Instagram user ID and username) necessary to deliver replies.</li>
             </ul>
           </section>
 
           {/* Section 3 */}
           <section>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f59e0b' }}>
-              <Shield size={20} /> 3. How Data Is Used & Protection
+              <Shield size={20} /> 3. Data Protection & Security
             </h2>
             <p style={{ color: 'var(--text-secondary, #cbd5e1)', marginBottom: '0.75rem' }}>
-              We handle your data with strict security standards:
+              We implement the following technical protections:
             </p>
             <ul style={{ paddingLeft: '1.5rem', color: 'var(--text-secondary, #cbd5e1)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <li><strong>No Data Selling:</strong> We do <strong>NOT</strong> sell, rent, or trade any customer, conversation, or business data to third parties under any circumstances.</li>
-              <li><strong>Token Encryption:</strong> Access tokens and sensitive platform credentials are encrypted at rest using AES-256-GCM encryption.</li>
-              <li><strong>Tenant Isolation:</strong> Data is isolated per business tenant using database-level Row Level Security (RLS).</li>
+              <li><strong>No Data Selling:</strong> We do <strong>NOT</strong> sell, trade, or rent any stored user or business data to third parties.</li>
+              <li><strong>Access Token Encryption:</strong> Instagram OAuth access tokens are encrypted at rest using AES-256-GCM encryption before database storage.</li>
+              <li><strong>Database Row Level Security (RLS):</strong> Data is isolated per tenant in the database using Supabase Row Level Security policies.</li>
             </ul>
           </section>
 
           {/* Section 4 */}
           <section>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f59e0b' }}>
-              <Trash2 size={20} /> 4. Data Retention & Deletion Rights
+              <Trash2 size={20} /> 4. Data Retention & Deletion Requests
             </h2>
             <p style={{ color: 'var(--text-secondary, #cbd5e1)', marginBottom: '0.75rem' }}>
-              Connected businesses and individual end-users have full rights to request complete deletion of their data at any time:
+              Users and connected account owners have the right to request deletion of their stored data at any time:
             </p>
             <ul style={{ paddingLeft: '1.5rem', color: 'var(--text-secondary, #cbd5e1)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <li><strong>Account Disconnection:</strong> Disconnecting an Instagram account in the Integrations dashboard revokes access tokens and deactivates integration.</li>
-              <li><strong>Automated Data Deletion Callback:</strong> We support Meta compliance automated data deletion callbacks via our endpoint at <code>/api/auth/instagram/data-deletion</code>.</li>
-              <li><strong>Manual Data Removal:</strong> You can submit a manual data deletion or privacy request at any time using the contact details below.</li>
+              <li><strong>Account Disconnection:</strong> Connected accounts can be disconnected via the integrations page, which revokes active connection status.</li>
+              <li><strong>Manual Data Deletion:</strong> You can request complete deletion of stored messages, comments, or account connections by emailing us at <a href="mailto:hessinesam25@gmail.com" style={{ color: '#f59e0b', textDecoration: 'underline' }}>hessinesam25@gmail.com</a>. Requests are processed manually upon verification.</li>
             </ul>
           </section>
 
           {/* Section 5 */}
           <section style={{ padding: '1.25rem', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f59e0b' }}>
-              <Mail size={20} /> 5. Contact Us for Privacy & Deletion Requests
+              <Mail size={20} /> 5. Privacy Contact Information
             </h2>
             <p style={{ color: 'var(--text-secondary, #cbd5e1)', marginBottom: '0.5rem' }}>
-              For any questions regarding this Privacy Policy or to request immediate deletion of your account and associated conversation data, please contact our Data Protection Officer:
+              For any questions regarding this Privacy Policy or to submit a data deletion request, please reach out directly:
             </p>
-            <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <p style={{ fontWeight: 600 }}>Email: <a href="mailto:privacy@gentsecafe.be" style={{ color: '#f59e0b', textDecoration: 'none' }}>privacy@gentsecafe.be</a></p>
-              <p style={{ color: 'var(--text-secondary, #94a3b8)', fontSize: '0.85rem' }}>Address: Korenmarkt 14, 9000 Gent, Belgium</p>
-            </div>
+            <p style={{ fontWeight: 600, color: '#f1f5f9' }}>
+              Email: <a href="mailto:hessinesam25@gmail.com" style={{ color: '#f59e0b', textDecoration: 'none' }}>hessinesam25@gmail.com</a>
+            </p>
           </section>
         </div>
       </div>
