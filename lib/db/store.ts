@@ -285,7 +285,8 @@ export const db = {
 
   // Real Supabase Conversations
   getConversations: async (tenantId: string = DEFAULT_TENANT_ID): Promise<Conversation[]> => {
-    const { data } = await supabaseFrontend
+    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const { data } = await client
       .from('conversations')
       .select('*')
       .eq('tenant_id', tenantId)
@@ -294,15 +295,27 @@ export const db = {
   },
 
   getConversationById: async (id: string): Promise<Conversation | null> => {
-    const { data } = await supabaseFrontend
+    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const { data } = await client
       .from('conversations')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
     return data;
   },
 
-  createConversation: async (conv: Partial<Conversation>): Promise<Conversation> => {
+  verifyConversationExists: async (id: string, tenantId: string): Promise<boolean> => {
+    const backend = getBackendSupabaseClient();
+    const { data } = await backend
+      .from('conversations')
+      .select('id')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    return Boolean(data && data.id);
+  },
+
+  createConversation: async (conv: Partial<Conversation>): Promise<Conversation | null> => {
     const backend = getBackendSupabaseClient();
     const payload = {
       id: (conv.id && conv.id.includes('-')) ? conv.id : crypto.randomUUID(),
@@ -327,10 +340,31 @@ export const db = {
       .single();
 
     if (error) {
-      console.error('[DB] Error inserting conversation:', error);
-      return payload as Conversation;
+      console.error('[DB] Error inserting conversation:', {
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        message: error.message,
+      });
+
+      // If unique constraint violation (code 23505), fetch existing conversation from DB
+      if (error.code === '23505' || error.message?.includes('unique constraint')) {
+        const { data: existing } = await backend
+          .from('conversations')
+          .select('*')
+          .eq('tenant_id', payload.tenant_id)
+          .eq('platform', payload.platform)
+          .eq('external_id', payload.external_id)
+          .maybeSingle();
+
+        if (existing) {
+          return existing;
+        }
+      }
+
+      return null;
     }
-    return data || (payload as Conversation);
+    return data;
   },
 
   updateConversation: async (id: string, updates: Partial<Conversation>) => {
@@ -346,7 +380,8 @@ export const db = {
 
   // Real Supabase Messages
   getMessages: async (conversationId: string): Promise<Message[]> => {
-    const { data } = await supabaseFrontend
+    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const { data } = await client
       .from('messages')
       .select('*')
       .eq('conversation_id', conversationId)
@@ -363,7 +398,13 @@ export const db = {
       .single();
 
     if (error) {
-      console.error('[DB] Error inserting message:', error);
+      console.error('[DB] Error inserting message:', {
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        message: error.message,
+      });
+      return null;
     }
 
     // Update last_message_at in conversation
@@ -372,11 +413,7 @@ export const db = {
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', msg.conversation_id);
 
-    return data || {
-      id: `msg_${Date.now()}`,
-      ...msg,
-      created_at: new Date().toISOString(),
-    };
+    return data;
   },
 
   // Real Supabase Comments

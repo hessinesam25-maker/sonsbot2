@@ -292,6 +292,35 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         } as any
       ]);
 
+      vi.spyOn(db, 'createConversation').mockResolvedValue({
+        id: '11111111-2222-3333-4444-555555555555',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'cust_888',
+        customer_id: 'cust_888',
+        customer_name: 'Message Request Sender',
+        customer_language: 'nl',
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      } as any);
+
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+
+      vi.spyOn(db, 'addMessage').mockResolvedValue({
+        id: 'msg_test_1',
+        conversation_id: '11111111-2222-3333-4444-555555555555',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        sender_type: 'customer',
+        content: 'Wat zijn de openingsuren?',
+        sanitized_content: 'Wat zijn de openingsuren?',
+        status: 'received',
+        created_at: new Date().toISOString(),
+      } as any);
+
       const sendSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
         success: true,
         messageId: 'ig_msg_outbound_1001',
@@ -350,6 +379,24 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         } as any
       ]);
 
+      vi.spyOn(db, 'createConversation').mockResolvedValue({
+        id: '22222222-2222-2222-2222-222222222222',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'cust_999',
+        customer_id: 'cust_999',
+        customer_name: 'Test Customer',
+        customer_language: 'nl',
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      } as any);
+
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+
       vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
         success: false,
         httpStatus: 400,
@@ -358,7 +405,7 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         error: 'Unsupported request or invalid recipient',
       });
 
-      const addMessageSpy = vi.spyOn(db, 'addMessage');
+      const addMessageSpy = vi.spyOn(db, 'addMessage').mockResolvedValue(null);
 
       const mockPayload = {
         object: 'instagram',
@@ -436,6 +483,164 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       const res = await POST(req);
       expect(res.status).toBe(200);
       expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    it('regression test for 23503: verifies conversation DB persistence before message insert and reuses existing conversation for subsequent messages', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+
+      const mockConn = {
+        id: 'conn_test_23503',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        platform: 'instagram',
+        account_id: '17841400011111111',
+        account_name: 'allthingisgood',
+        access_token_encrypted: encryptToken('valid_access_token_123'),
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([mockConn as any]);
+
+      const testSenderId = `cust_new_${Date.now()}`;
+      const conversationId = crypto.randomUUID();
+      const mockConv = {
+        id: conversationId,
+        tenant_id: mockConn.tenant_id,
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: testSenderId,
+        customer_id: testSenderId,
+        customer_name: 'New Sender',
+        customer_language: 'nl',
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+
+      // 1. Initial lookup returns empty array -> new sender
+      const getConvSpy = vi.spyOn(db, 'getConversations').mockResolvedValueOnce([]).mockResolvedValue([mockConv as any]);
+      const createConvSpy = vi.spyOn(db, 'createConversation').mockResolvedValue(mockConv as any);
+      const verifyConvSpy = vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+      const addMsgSpy = vi.spyOn(db, 'addMessage');
+
+      const firstPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            messaging: [
+              {
+                sender: { id: testSenderId },
+                recipient: { id: '17841400011111111' },
+                message: { mid: `mid_first_${Date.now()}`, text: 'First message from new sender' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const firstReq = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(firstPayload)
+      });
+
+      const firstRes = await POST(firstReq);
+      expect(firstRes.status).toBe(200);
+
+      // Verify createConversation was called and conversation DB existence was verified
+      expect(createConvSpy).toHaveBeenCalledTimes(1);
+      expect(verifyConvSpy).toHaveBeenCalledWith(conversationId, mockConn.tenant_id);
+
+      // Verify customer message was inserted with valid conversation_id
+      const customerMsgCall = addMsgSpy.mock.calls.find(c => c[0].sender_type === 'customer');
+      expect(customerMsgCall).toBeDefined();
+      expect(customerMsgCall![0].conversation_id).toBe(conversationId);
+
+      // 2. Second message from same sender: reuses existing conversation
+      const secondPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            messaging: [
+              {
+                sender: { id: testSenderId },
+                recipient: { id: '17841400011111111' },
+                message: { mid: `mid_second_${Date.now()}`, text: 'Second message from same sender' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const secondReq = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(secondPayload)
+      });
+
+      const secondRes = await POST(secondReq);
+      expect(secondRes.status).toBe(200);
+      // createConversation should NOT be called again for existing sender
+      expect(createConvSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('safely skips message insert if conversation DB creation fails (prevents 23503)', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([
+        {
+          id: 'conn_test_failed_conv',
+          tenant_id: '11111111-1111-1111-1111-111111111111',
+          platform: 'instagram',
+          account_id: '17841400011111111',
+          account_name: 'allthingisgood',
+          access_token_encrypted: encryptToken('valid_access_token_123'),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any
+      ]);
+
+      vi.spyOn(db, 'getConversations').mockResolvedValue([]);
+      // Simulate failed conversation creation (returns null)
+      vi.spyOn(db, 'createConversation').mockResolvedValue(null);
+      const addMsgSpy = vi.spyOn(db, 'addMessage');
+
+      const mockPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            messaging: [
+              {
+                sender: { id: 'cust_conv_failed' },
+                recipient: { id: '17841400011111111' },
+                message: { mid: `mid_failed_conv_${Date.now()}`, text: 'Hello?' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mockPayload)
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      // addMessage MUST NOT be called if conversation creation failed
+      expect(addMsgSpy).not.toHaveBeenCalled();
     });
   });
 });

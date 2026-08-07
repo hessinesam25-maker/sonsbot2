@@ -125,7 +125,10 @@ export async function POST(req: NextRequest) {
     const allConnections = await db.getConnections();
     const igConnections = allConnections.filter(c => c.platform === 'instagram' && c.is_active);
 
+    const DEPLOYMENT_COMMIT_SHA = 'a8dfb3c+fix_persistence';
+
     console.info('[WEBHOOK_POST_DIAGNOSTIC]', JSON.stringify({
+      commit_sha: DEPLOYMENT_COMMIT_SHA,
       webhook_object_type: payload?.object || 'unknown',
       events_count: events.length,
       active_connections_count: igConnections.length,
@@ -219,10 +222,13 @@ export async function POST(req: NextRequest) {
       const sanitizedText = sanitizeInput(event.content);
 
       if (event.eventType === 'message') {
-        let conversations = await db.getConversations(authoritativeTenantId);
+        const conversations = await db.getConversations(authoritativeTenantId);
 
         let existingMessages: any[] = [];
-        let conv = conversations.find(c => c.external_id === event.senderId || c.customer_id === event.senderId);
+        let conv = conversations.find(c => c.external_id === event.senderId || c.customer_id === event.senderId) || null;
+        const conversationLookupFound = Boolean(conv);
+        let conversationCreateAttempted = false;
+        let conversationCreateSucceeded = false;
 
         if (conv) {
           existingMessages = await db.getMessages(conv.id);
@@ -243,6 +249,7 @@ export async function POST(req: NextRequest) {
             continue;
           }
         } else {
+          conversationCreateAttempted = true;
           // Persist new conversation to Supabase DB so Foreign Key constraints succeed
           conv = await db.createConversation({
             id: crypto.randomUUID(),
@@ -258,6 +265,25 @@ export async function POST(req: NextRequest) {
             auto_reply_enabled: true,
             last_message_at: new Date().toISOString(),
           });
+          conversationCreateSucceeded = Boolean(conv);
+        }
+
+        // Verify conversation row actually exists in Supabase DB before inserting message
+        const convExistsInDb = conv ? await db.verifyConversationExists(conv.id, authoritativeTenantId) : false;
+
+        if (!conv || !convExistsInDb) {
+          console.error('[CONVERSATION_PERSISTENCE_DIAGNOSTIC]', JSON.stringify({
+            conversation_lookup_found: conversationLookupFound,
+            conversation_create_attempted: conversationCreateAttempted,
+            conversation_create_succeeded: conversationCreateSucceeded,
+            conversation_id_present: Boolean(conv?.id),
+            conversation_exists_in_db_before_message_insert: false,
+            customer_message_inserted: false,
+            bot_message_inserted: false,
+            db_error_code: 'MISSING_CONVERSATION_DB_ROW',
+            db_constraint: 'messages_conversation_id_fkey',
+          }));
+          continue;
         }
 
         // Add incoming customer message under authoritative tenant
@@ -270,6 +296,18 @@ export async function POST(req: NextRequest) {
           sanitized_content: sanitizedText,
           status: 'received',
         });
+
+        console.info('[CONVERSATION_PERSISTENCE_DIAGNOSTIC]', JSON.stringify({
+          conversation_lookup_found: conversationLookupFound,
+          conversation_create_attempted: conversationCreateAttempted,
+          conversation_create_succeeded: conversationCreateSucceeded,
+          conversation_id_present: Boolean(conv.id),
+          conversation_exists_in_db_before_message_insert: true,
+          customer_message_inserted: Boolean(insertedMsg),
+          bot_message_inserted: false,
+          db_error_code: insertedMsg ? null : 'CUSTOMER_MESSAGE_INSERT_FAILED',
+          db_constraint: insertedMsg ? null : 'messages_conversation_id_fkey',
+        }));
 
         console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
           webhook_object_type: payload?.object || 'unknown',
