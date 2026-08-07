@@ -13,7 +13,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const body = await req.json();
-  const updated = await db.updateConversation(params.id, body);
+  const payload = { ...body };
+  if (body.human_takeover !== undefined) {
+    payload.is_manual_takeover = body.human_takeover;
+  }
+  const updated = await db.updateConversation(params.id, payload);
 
   if (!updated) {
     return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });

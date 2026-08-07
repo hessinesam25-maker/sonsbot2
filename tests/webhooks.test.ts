@@ -1147,6 +1147,135 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         content: 'Bienvenue au Café Tenant B!',
       }));
     });
+
+    it('resets legacy automated human_takeover (is_manual_takeover=false) and allows fixed DM reply, while respecting explicit manual takeover (is_manual_takeover=true)', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+
+      const mockConn = {
+        id: 'conn_takeover_test',
+        tenant_id: 'tenant_takeover_123',
+        platform: 'instagram',
+        account_id: '17841400033333333',
+        account_name: 'takeover_account',
+        access_token_encrypted: encryptToken('valid_token'),
+        is_active: true,
+      };
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([mockConn as any]);
+      vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+        id: 'rules_takeover',
+        tenant_id: mockConn.tenant_id,
+        default_dm_reply: 'Fixed DM Reply text for takeover test',
+      } as any);
+
+      const sendDmSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+        success: true,
+        messageId: 'mid_takeover_resp',
+      });
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+
+      // Scenario A: Existing conversation has human_takeover=true from LEGACY AI threshold run (is_manual_takeover=false)
+      const legacyConv = {
+        id: 'conv_legacy_takeover_uuid',
+        tenant_id: mockConn.tenant_id,
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'cust_legacy_001',
+        customer_id: 'cust_legacy_001',
+        customer_name: 'Legacy User',
+        customer_language: 'nl',
+        status: 'needs_human_review',
+        human_takeover: true,
+        is_manual_takeover: false, // Legacy automated flag!
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+
+      vi.spyOn(db, 'getConversations').mockResolvedValue([legacyConv as any]);
+      const updateConvSpy = vi.spyOn(db, 'updateConversation');
+
+      const payloadA = {
+        object: 'instagram',
+        entry: [{
+          id: '17841400033333333',
+          messaging: [{
+            sender: { id: 'cust_legacy_001' },
+            recipient: { id: '17841400033333333' },
+            timestamp: Date.now(),
+            message: { mid: 'mid_legacy_01', text: 'Nieuw bericht' }
+          }]
+        }]
+      };
+
+      const reqA = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadA)
+      });
+
+      const resA = await POST(reqA);
+      expect(resA.status).toBe(200);
+
+      // Legacy automated takeover MUST be reset to false and status to 'open'
+      expect(updateConvSpy).toHaveBeenCalledWith('conv_legacy_takeover_uuid', expect.objectContaining({
+        human_takeover: false,
+        is_manual_takeover: false,
+        status: 'open',
+      }));
+
+      // Outbound fixed DM send MUST succeed
+      expect(sendDmSpy).toHaveBeenCalledTimes(1);
+
+      // Scenario B: Conversation has EXPLICIT MANUAL TAKEOVER (is_manual_takeover=true)
+      sendDmSpy.mockClear();
+      const manualConv = {
+        id: 'conv_manual_takeover_uuid',
+        tenant_id: mockConn.tenant_id,
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'cust_manual_002',
+        customer_id: 'cust_manual_002',
+        customer_name: 'Manual User',
+        customer_language: 'nl',
+        status: 'needs_human_review',
+        human_takeover: true,
+        is_manual_takeover: true, // EXPLICIT manual takeover by support agent!
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+
+      vi.spyOn(db, 'getConversations').mockResolvedValue([manualConv as any]);
+
+      const payloadB = {
+        object: 'instagram',
+        entry: [{
+          id: '17841400033333333',
+          messaging: [{
+            sender: { id: 'cust_manual_002' },
+            recipient: { id: '17841400033333333' },
+            timestamp: Date.now(),
+            message: { mid: 'mid_manual_01', text: 'Ik wil spreken met een mens' }
+          }]
+        }]
+      };
+
+      const reqB = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadB)
+      });
+
+      const resB = await POST(reqB);
+      expect(resB.status).toBe(200);
+
+      // Outbound fixed DM send MUST NOT be attempted for explicit manual takeover
+      expect(sendDmSpy).not.toHaveBeenCalled();
+    });
   });
 });
 

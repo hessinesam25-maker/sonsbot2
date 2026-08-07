@@ -353,6 +353,17 @@ export async function POST(req: NextRequest) {
         }));
 
         // Process Instagram Direct Messages using Fixed DM Reply Architecture
+        // Reset legacy automated takeover state if not explicitly set by a human operator
+        if (conv.human_takeover && !conv.is_manual_takeover) {
+          await db.updateConversation(conv.id, {
+            human_takeover: false,
+            is_manual_takeover: false,
+            status: 'open',
+          });
+          conv.human_takeover = false;
+          conv.is_manual_takeover = false;
+        }
+
         const isDmAutoReplyEnabled = Boolean(conv.auto_reply_enabled && rules.auto_reply_factual_questions !== false);
         const fixedDmReply = (rules.default_dm_reply && rules.default_dm_reply.trim().length > 0) ? rules.default_dm_reply.trim() : null;
 

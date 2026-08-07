@@ -249,11 +249,31 @@ export const db = {
 
   // Real Supabase Automation Rules
   getAutomationRules: async (tenantId: string = DEFAULT_TENANT_ID): Promise<AutomationRules> => {
-    const { data } = await supabaseFrontend
+    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const { data, error } = await client
       .from('automation_rules')
       .select('*')
       .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
+
+    if (error) {
+      console.error('[AUTOMATION_RULES_LOOKUP_DIAGNOSTIC]', JSON.stringify({
+        tenant_id_present: Boolean(tenantId),
+        automation_rules_lookup_succeeded: false,
+        automation_rules_row_found: false,
+        default_dm_reply_present: false,
+        lookup_http_error_code: error.code || 'UNKNOWN_ERROR',
+        error_message: error.message,
+      }));
+    } else {
+      console.info('[AUTOMATION_RULES_LOOKUP_DIAGNOSTIC]', JSON.stringify({
+        tenant_id_present: Boolean(tenantId),
+        automation_rules_lookup_succeeded: true,
+        automation_rules_row_found: Boolean(data),
+        default_dm_reply_present: Boolean(data?.default_dm_reply && data.default_dm_reply.trim().length > 0),
+        lookup_http_error_code: null,
+      }));
+    }
 
     if (!data) {
       return {

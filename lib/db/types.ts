@@ -209,6 +209,7 @@ export interface Conversation {
   customer_language: CustomerLanguage;
   status: ConversationStatus;
   human_takeover: boolean;
+  is_manual_takeover?: boolean;
   auto_reply_enabled: boolean;
   assigned_to?: string;
   last_message_at: string;
