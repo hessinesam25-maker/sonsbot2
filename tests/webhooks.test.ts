@@ -321,6 +321,20 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         created_at: new Date().toISOString(),
       } as any);
 
+      vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+        id: 'rules_test',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        min_confidence_score: 0.85,
+        max_public_replies_per_hour: 20,
+        auto_reply_positive_comments: true,
+        auto_reply_factual_questions: true,
+        never_reply_complaints: true,
+        hide_spam: true,
+        ai_tone: 'friendly_warm',
+        default_dm_reply: 'Hallo! Bedankt voor je bericht.',
+        updated_at: new Date().toISOString(),
+      });
+
       const sendSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
         success: true,
         messageId: 'ig_msg_outbound_1001',
@@ -853,6 +867,20 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         replyId: 'cmt_resp_123',
       });
 
+      vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+        id: 'rules_test',
+        tenant_id: mockConn.tenant_id,
+        min_confidence_score: 0.85,
+        max_public_replies_per_hour: 20,
+        auto_reply_positive_comments: true,
+        auto_reply_factual_questions: true,
+        never_reply_complaints: true,
+        hide_spam: true,
+        ai_tone: 'friendly_warm',
+        default_dm_reply: 'Hallo! Bedankt voor je bericht bij onze zaak in Gent. Hoe kunnen we je helpen?',
+        updated_at: new Date().toISOString(),
+      });
+
       const testDmLanguages = ['هاي', 'Hello', 'Hallo', 'Bonjour', 'random_query_xyz'];
 
       for (let i = 0; i < testDmLanguages.length; i++) {
@@ -884,12 +912,9 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         expect(res.status).toBe(200);
       }
 
-      // Verify sendDirectMessage was called 5 times (once per DM) with the SAME fixed reply content
+      // Verify sendDirectMessage was called 5 times (once per DM) with the SAME configured fixed reply
       expect(sendDmSpy).toHaveBeenCalledTimes(5);
-      const firstCallContent = sendDmSpy.mock.calls[0][0].content;
-      for (const call of sendDmSpy.mock.calls) {
-        expect(call[0].content).toBe(firstCallContent);
-      }
+      expect(sendDmSpy.mock.calls[0][0].content).toBe('Hallo! Bedankt voor je bericht bij onze zaak in Gent. Hoe kunnen we je helpen?');
 
       // Test Comment Automation Isolation: Comments MUST continue to use variable rule logic
       vi.spyOn(db, 'getComments').mockResolvedValue([]);
@@ -924,6 +949,204 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       expect(cmtRes.status).toBe(200);
       expect(sendCommentSpy).toHaveBeenCalledTimes(1);
     }, 15000);
+
+    it('stores incoming customer DM but DOES NOT send anything when default_dm_reply is missing', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+
+      const mockConn = {
+        id: 'conn_missing_reply',
+        tenant_id: 'tenant_no_reply_123',
+        platform: 'instagram',
+        account_id: '17841400022222222',
+        account_name: 'no_reply_account',
+        access_token_encrypted: encryptToken('valid_access_token_123'),
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([mockConn as any]);
+      vi.spyOn(db, 'getConversations').mockResolvedValue([]);
+      vi.spyOn(db, 'createConversation').mockResolvedValue({
+        id: 'conv_missing_reply_uuid',
+        tenant_id: mockConn.tenant_id,
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'cust_missing_001',
+        customer_id: 'cust_missing_001',
+        customer_name: 'Customer No Reply',
+        customer_language: 'nl',
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      } as any);
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+
+      // Return automation rules WITHOUT default_dm_reply
+      vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+        id: 'rules_missing',
+        tenant_id: mockConn.tenant_id,
+        min_confidence_score: 0.85,
+        max_public_replies_per_hour: 20,
+        auto_reply_positive_comments: true,
+        auto_reply_factual_questions: true,
+        never_reply_complaints: true,
+        hide_spam: true,
+        ai_tone: 'friendly_warm',
+        default_dm_reply: undefined, // NO fixed DM reply configured!
+        updated_at: new Date().toISOString(),
+      });
+
+      const addMsgSpy = vi.spyOn(db, 'addMessage');
+      const sendDmSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage');
+
+      const payload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400022222222',
+            messaging: [
+              {
+                sender: { id: 'cust_missing_001' },
+                recipient: { id: '17841400022222222' },
+                timestamp: Date.now(),
+                message: { mid: 'mid_missing_reply_01', text: 'Wat zijn de openingsuren?' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+
+      // Customer message MUST be stored
+      expect(addMsgSpy).toHaveBeenCalledWith(expect.objectContaining({
+        sender_type: 'customer',
+        content: 'Wat zijn de openingsuren?',
+      }));
+
+      // Direct Message send MUST NOT be attempted
+      expect(sendDmSpy).not.toHaveBeenCalled();
+    });
+
+    it('enforces strict tenant isolation: Tenant A and Tenant B send their own configured fixed DM replies', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+
+      const connA = {
+        id: 'conn_tenant_A',
+        tenant_id: 'tenant_A_uuid',
+        platform: 'instagram',
+        account_id: '178414000AAAAAA',
+        account_name: 'account_A',
+        access_token_encrypted: encryptToken('token_A'),
+        is_active: true,
+      };
+
+      const connB = {
+        id: 'conn_tenant_B',
+        tenant_id: 'tenant_B_uuid',
+        platform: 'instagram',
+        account_id: '178414000BBBBBB',
+        account_name: 'account_B',
+        access_token_encrypted: encryptToken('token_B'),
+        is_active: true,
+      };
+
+      vi.spyOn(db, 'getConnections').mockImplementation(async (tenantId) => {
+        if (tenantId === 'tenant_A_uuid') return [connA as any];
+        if (tenantId === 'tenant_B_uuid') return [connB as any];
+        return [connA as any, connB as any];
+      });
+
+      vi.spyOn(db, 'getConversations').mockResolvedValue([]);
+      vi.spyOn(db, 'createConversation').mockImplementation(async (conv: any) => ({
+        ...conv,
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        created_at: new Date().toISOString(),
+      }));
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+
+      vi.spyOn(db, 'getAutomationRules').mockImplementation(async (tenantId) => {
+        if (tenantId === 'tenant_A_uuid') {
+          return {
+            id: 'rules_A',
+            tenant_id: 'tenant_A_uuid',
+            default_dm_reply: 'Welkom bij Tenant A Cafe in Gent!',
+          } as any;
+        }
+        return {
+          id: 'rules_B',
+          tenant_id: 'tenant_B_uuid',
+          default_dm_reply: 'Bienvenue au Café Tenant B!',
+        } as any;
+      });
+
+      const sendDmSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+        success: true,
+        messageId: 'mid_outbound_test',
+      });
+
+      // DM to Tenant A
+      const reqA = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          object: 'instagram',
+          entry: [{
+            id: '178414000AAAAAA',
+            messaging: [{
+              sender: { id: 'cust_for_A' },
+              recipient: { id: '178414000AAAAAA' },
+              timestamp: Date.now(),
+              message: { mid: 'mid_to_A', text: 'Hi A' }
+            }]
+          }]
+        })
+      });
+      await POST(reqA);
+      expect(sendDmSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+        content: 'Welkom bij Tenant A Cafe in Gent!',
+      }));
+
+      // DM to Tenant B
+      const reqB = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          object: 'instagram',
+          entry: [{
+            id: '178414000BBBBBB',
+            messaging: [{
+              sender: { id: 'cust_for_B' },
+              recipient: { id: '178414000BBBBBB' },
+              timestamp: Date.now(),
+              message: { mid: 'mid_to_B', text: 'Hi B' }
+            }]
+          }]
+        })
+      });
+      await POST(reqB);
+      expect(sendDmSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+        content: 'Bienvenue au Café Tenant B!',
+      }));
+    });
   });
 });
 

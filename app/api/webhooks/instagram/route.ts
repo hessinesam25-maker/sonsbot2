@@ -354,11 +354,7 @@ export async function POST(req: NextRequest) {
 
         // Process Instagram Direct Messages using Fixed DM Reply Architecture
         const isDmAutoReplyEnabled = Boolean(conv.auto_reply_enabled && rules.auto_reply_factual_questions !== false);
-        const fixedDmReply = rules.default_dm_reply || (
-          kb.cafe_name && kb.address 
-            ? `Hallo! Bedankt voor je bericht bij ${kb.cafe_name}. Wij zijn gevestigd op ${kb.address}. Hoe kunnen we je vandaag helpen?`
-            : 'Hallo! Bedankt voor je bericht. Hoe kunnen we je vandaag helpen?'
-        );
+        const fixedDmReply = (rules.default_dm_reply && rules.default_dm_reply.trim().length > 0) ? rules.default_dm_reply.trim() : null;
 
         let blockedReason: string | null = null;
         if (conv.human_takeover) {
@@ -366,7 +362,7 @@ export async function POST(req: NextRequest) {
         } else if (!isDmAutoReplyEnabled) {
           blockedReason = 'DM auto-reply is disabled by tenant settings';
         } else if (!fixedDmReply) {
-          blockedReason = 'No fixed DM reply configured for tenant';
+          blockedReason = 'missing_fixed_dm_reply';
         }
 
         const autoSendEligible = !conv.human_takeover && isDmAutoReplyEnabled && Boolean(fixedDmReply);
