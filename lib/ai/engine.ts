@@ -12,6 +12,7 @@ export interface AIEngineResponse {
   requiresHumanReview: boolean;
   suggestedReply: string;
   ruleMatchFound: boolean;
+  matchedRuleType: string;
   replySource: 'predefined_rule' | 'positive_comment' | 'ai_fallback';
   reason?: string;
 }
@@ -39,6 +40,7 @@ export function generateAIReply(
       requiresHumanReview: true,
       suggestedReply: getFallbackResponse(detectedLanguage),
       ruleMatchFound: false,
+      matchedRuleType: 'safety_classifier',
       replySource: 'ai_fallback',
       reason: classificationResult.reason || 'Flagged for human review by safety classifier',
     };
@@ -56,6 +58,7 @@ export function generateAIReply(
         requiresHumanReview: false,
         suggestedReply: variedReply,
         ruleMatchFound: true,
+        matchedRuleType: 'positive_comment',
         replySource: 'positive_comment',
         reason: 'Matched positive comment rule',
       };
@@ -78,6 +81,7 @@ export function generateAIReply(
       requiresHumanReview: !isAutoSendEnabled,
       suggestedReply: rawReply,
       ruleMatchFound: true,
+      matchedRuleType: kbResult.sourceCategory || 'predefined_rule',
       replySource: 'predefined_rule',
       reason: isAutoSendEnabled ? 'Matched deterministic predefined rule' : 'Rule matched but auto-reply disabled by tenant configuration',
     };
@@ -92,6 +96,7 @@ export function generateAIReply(
     requiresHumanReview: true,
     suggestedReply: getFallbackResponse(detectedLanguage),
     ruleMatchFound: false,
+    matchedRuleType: 'none',
     replySource: 'ai_fallback',
     reason: 'Information unavailable in knowledge base. Transferred to human team.',
   };

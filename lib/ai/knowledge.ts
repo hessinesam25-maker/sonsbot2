@@ -6,6 +6,17 @@ export interface KBQueryResult {
   sourceCategory?: string;
 }
 
+export function normalizeTextForMatching(text: string): string {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .toLowerCase()
+    .replace(/[\u064B-\u0652\u0670]/g, '') // Remove Arabic diacritics (tashkeel)
+    .replace(/[أإآ]/g, 'ا') // Normalize alef variants (أ / إ / آ -> ا)
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
  * Searches the Knowledge Base and Menu for factual answers to customer queries.
  * Strictly returns only facts present in the database to prevent hallucinations.
@@ -17,6 +28,8 @@ export function queryKnowledgeBase(
   language: CustomerLanguage
 ): KBQueryResult {
   const lower = query.toLowerCase();
+  const normInput = normalizeTextForMatching(query);
+  const words = normInput.split(' ');
 
   // 1. Opening Hours & Holiday Hours
   if (lower.includes('open') || lower.includes('openingsuren') || lower.includes('uren') || lower.includes('gesloten') || lower.includes('hours') || lower.includes('horaires')) {
@@ -68,7 +81,6 @@ export function queryKnowledgeBase(
   // 3. Vegetarian & Vegan Options
   if (lower.includes('veggie') || lower.includes('vegetarisch') || lower.includes('vegan') || lower.includes('plantaardig')) {
     const vegItems = menu.filter(m => m.is_vegetarian || m.is_vegan).map(m => m.name);
-    const veganItems = menu.filter(m => m.is_vegan).map(m => m.name);
 
     if (vegItems.length > 0) {
       if (language === 'nl') {
@@ -152,22 +164,28 @@ export function queryKnowledgeBase(
     }
   }
 
-  // 8. Greetings & General DM hospitality rules
-  if (
-    lower.includes('hallo') ||
-    lower.includes('hello') ||
-    lower.includes('hi') ||
-    lower.includes('goeiedag') ||
-    lower.includes('goedemorgen') ||
-    lower.includes('goedenavond') ||
-    lower.includes('hey') ||
-    lower.includes('hoi') ||
-    lower.includes('welkom')
-  ) {
-    if (language === 'nl') {
+  // 8. Multilingual Greetings & General DM hospitality rules
+  const greetingKeywords = [
+    // Arabic variants (normalized: diacritics stripped, alef normalized)
+    'هاي', 'هلا', 'اهلا', 'السلام عليكم', 'مرحبا', 'مرحبا بك', 'تحياتي', 'اهلا وسهلا',
+    // English variants
+    'hi', 'hello', 'hey', 'good morning', 'good evening', 'welcome',
+    // Dutch variants
+    'hallo', 'hoi', 'goeiedag', 'goedemorgen', 'goedenavond', 'welkom',
+    // French variants
+    'bonjour', 'salut', 'coucou', 'bonsoir', 'bienvenue'
+  ];
+
+  const isGreetingMatch = greetingKeywords.some(kw => {
+    const normKw = normalizeTextForMatching(kw);
+    return normInput === normKw || normInput.startsWith(normKw + ' ') || words.includes(normKw);
+  });
+
+  if (isGreetingMatch) {
+    if (language === 'ar') {
       return {
         found: true,
-        factSummary: `Hallo! Welkom bij ${kb.cafe_name || 'onze zaak'} in Gent. Hoe kunnen we je vandaag helpen? Onze openingsuren, adres en menu vind je op onze pagina!`,
+        factSummary: `مرحباً بك! كيف يمكننا مساعدتك اليوم؟`,
         sourceCategory: 'greeting',
       };
     } else if (language === 'fr') {
@@ -176,16 +194,16 @@ export function queryKnowledgeBase(
         factSummary: `Bonjour! Bienvenue chez ${kb.cafe_name || 'notre café'} à Gand. Comment pouvons-nous vous aider aujourd'hui?`,
         sourceCategory: 'greeting',
       };
-    } else if (language === 'ar') {
+    } else if (language === 'en') {
       return {
         found: true,
-        factSummary: `مرحباً بك! كيف يمكننا مساعدتك اليوم؟`,
+        factSummary: `Hello! Welcome to ${kb.cafe_name || 'our cafe'} in Ghent. How can we help you today?`,
         sourceCategory: 'greeting',
       };
     } else {
       return {
         found: true,
-        factSummary: `Hello! Welcome to ${kb.cafe_name || 'our cafe'} in Ghent. How can we help you today?`,
+        factSummary: `Hallo! Welkom bij ${kb.cafe_name || 'onze zaak'} in Gent. Hoe kunnen we je vandaag helpen? Onze openingsuren, adres en menu vind je op onze pagina!`,
         sourceCategory: 'greeting',
       };
     }
@@ -196,9 +214,17 @@ export function queryKnowledgeBase(
     lower.includes('bedankt') ||
     lower.includes('thanks') ||
     lower.includes('thank you') ||
-    lower.includes('merci')
+    lower.includes('merci') ||
+    normInput.includes('شكرا') ||
+    normInput.includes('شكر')
   ) {
-    if (language === 'nl') {
+    if (language === 'ar') {
+      return {
+        found: true,
+        factSummary: `عفواً! إذا كان لديك أي أسئلة أخرى، يسعدنا مساعدتك. نتمنى لك يوماً سعيداً!`,
+        sourceCategory: 'politeness',
+      };
+    } else if (language === 'nl') {
       return {
         found: true,
         factSummary: `Graag gedaan! Als je nog vragen hebt, laat het ons gerust weten. Fijne dag verder!`,

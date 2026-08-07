@@ -805,6 +805,76 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       expect(customerMsgsB.length).toBe(1);
       expect(customerMsgsB[0].external_message_id).toBe('mid_004');
     }, 15000);
+
+    it('end-to-end: real Arabic greeting DM matches rule and attempts sendDirectMessage exactly once', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+
+      const mockConn = {
+        id: 'conn_test_ar_greeting',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        platform: 'instagram',
+        account_id: '17841400011111111',
+        account_name: 'allthingisgood',
+        access_token_encrypted: encryptToken('valid_access_token_123'),
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([mockConn as any]);
+      vi.spyOn(db, 'getConversations').mockResolvedValue([]);
+      vi.spyOn(db, 'createConversation').mockResolvedValue({
+        id: 'conv_ar_uuid',
+        tenant_id: mockConn.tenant_id,
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'cust_ar_001',
+        customer_id: 'cust_ar_001',
+        customer_name: 'Arabic User',
+        customer_language: 'ar',
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      } as any);
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+
+      const sendSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+        success: true,
+        messageId: 'mid_outbound_resp_123',
+      });
+
+      const arPayload = {
+        object: 'instagram',
+        entry: [
+          {
+            id: '17841400011111111',
+            messaging: [
+              {
+                sender: { id: 'cust_ar_001' },
+                recipient: { id: '17841400011111111' },
+                timestamp: Date.now(),
+                message: { mid: 'mid_ar_greeting_001', text: 'أهلاً' }
+              }
+            ]
+          }
+        ]
+      };
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(arPayload)
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

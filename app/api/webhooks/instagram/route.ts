@@ -321,6 +321,12 @@ export async function POST(req: NextRequest) {
           status: 'received',
         });
 
+        console.info('[MESSAGE_ID_DIAGNOSTIC]', JSON.stringify({
+          meta_mid_present: keySource === 'meta_mid',
+          external_message_id_source: keySource === 'meta_mid' ? 'message.mid' : 'deterministic_fallback',
+          external_message_id_matches_entry_id: String(event.externalId) === String(recipientAccountId || targetConn.account_id),
+        }));
+
         console.info('[CONVERSATION_PERSISTENCE_DIAGNOSTIC]', JSON.stringify({
           conversation_lookup_found: conversationLookupFound,
           conversation_create_attempted: conversationCreateAttempted,
@@ -354,12 +360,11 @@ export async function POST(req: NextRequest) {
 
           console.info('[RULE_REPLY_DIAGNOSTIC]', JSON.stringify({
             rule_match_found: aiResponse.ruleMatchFound,
-            rule_enabled: rules.auto_reply_factual_questions !== false,
-            reply_configured: Boolean(aiResponse.suggestedReply),
+            matched_rule_type: aiResponse.matchedRuleType || 'none',
             reply_source: aiResponse.replySource || 'predefined_rule',
-            legacy_confidence_gate_applied: false,
             auto_send_eligible: aiResponse.isSafeForAutoReply && !aiResponse.requiresHumanReview,
             human_review_required: aiResponse.requiresHumanReview,
+            blocked_reason: aiResponse.requiresHumanReview || !aiResponse.isSafeForAutoReply ? (aiResponse.reason || 'Flagged for human review') : null,
           }));
 
           if (aiResponse.requiresHumanReview || !aiResponse.isSafeForAutoReply) {

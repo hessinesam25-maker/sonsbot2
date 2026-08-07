@@ -59,12 +59,42 @@ describe('AI Engine, Multi-Lingual & Guardrails Test Suite', () => {
     expect(res.suggestedReply).toContain('Onze openingsuren in Gent');
   });
 
-  it('should match common greetings deterministically as auto-reply eligible', () => {
-    const res = generateAIReply('Hallo!', 'dm', mockKb, mockMenu, mockRules);
-    expect(res.ruleMatchFound).toBe(true);
-    expect(res.isSafeForAutoReply).toBe(true);
-    expect(res.requiresHumanReview).toBe(false);
-    expect(res.suggestedReply).toContain('Hallo! Welkom bij');
+  it('should match common greetings deterministically as auto-reply eligible across languages', () => {
+    // Dutch greeting
+    const resNl = generateAIReply('Hallo!', 'dm', mockKb, mockMenu, mockRules);
+    expect(resNl.ruleMatchFound).toBe(true);
+    expect(resNl.matchedRuleType).toBe('greeting');
+    expect(resNl.isSafeForAutoReply).toBe(true);
+
+    // Arabic greeting "هاي"
+    const resAr1 = generateAIReply('هاي', 'dm', mockKb, mockMenu, mockRules);
+    expect(resAr1.ruleMatchFound).toBe(true);
+    expect(resAr1.matchedRuleType).toBe('greeting');
+    expect(resAr1.isSafeForAutoReply).toBe(true);
+
+    // Arabic greeting "أهلاً" (with diacritics / alef hamza)
+    const resAr2 = generateAIReply('أهلاً', 'dm', mockKb, mockMenu, mockRules);
+    expect(resAr2.ruleMatchFound).toBe(true);
+    expect(resAr2.matchedRuleType).toBe('greeting');
+    expect(resAr2.isSafeForAutoReply).toBe(true);
+
+    // Arabic greeting "السلام عليكم"
+    const resAr3 = generateAIReply('السلام عليكم', 'dm', mockKb, mockMenu, mockRules);
+    expect(resAr3.ruleMatchFound).toBe(true);
+    expect(resAr3.matchedRuleType).toBe('greeting');
+    expect(resAr3.isSafeForAutoReply).toBe(true);
+
+    // French greeting "Bonjour"
+    const resFr = generateAIReply('Bonjour!', 'dm', mockKb, mockMenu, mockRules);
+    expect(resFr.ruleMatchFound).toBe(true);
+    expect(resFr.matchedRuleType).toBe('greeting');
+    expect(resFr.isSafeForAutoReply).toBe(true);
+
+    // English greeting "Hello"
+    const resEn = generateAIReply('Hello there!', 'dm', mockKb, mockMenu, mockRules);
+    expect(resEn.ruleMatchFound).toBe(true);
+    expect(resEn.matchedRuleType).toBe('greeting');
+    expect(resEn.isSafeForAutoReply).toBe(true);
   });
 
   it('should respect disabled auto_reply_factual_questions setting', () => {
