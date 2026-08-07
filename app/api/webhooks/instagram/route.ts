@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyMetaWebhookChallenge } from '@/lib/security/signatures';
 import { InstagramConnector } from '@/lib/connectors/instagram';
@@ -9,6 +10,11 @@ import { decryptToken } from '@/lib/security/encryption';
 
 const connector = new InstagramConnector();
 
+function getSha256First8(val: string | null | undefined): string | null {
+  if (!val) return null;
+  return crypto.createHash('sha256').update(val).digest('hex').slice(0, 8);
+}
+
 /**
  * GET Handler for Instagram Webhook verification challenge
  */
@@ -18,11 +24,56 @@ export async function GET(req: NextRequest) {
   const token = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  const expectedToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || 'ghent_cafe_secure_webhook_verify_token_2026';
+  const expectedToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
 
+  // 1. If INSTAGRAM_WEBHOOK_VERIFY_TOKEN is missing at runtime -> HTTP 500
+  if (!expectedToken) {
+    console.info('[WEBHOOK_GET_DIAGNOSTIC]', JSON.stringify({
+      mode,
+      challenge_present: Boolean(challenge),
+      expected_token_present: false,
+      received_token_present: Boolean(token),
+      expected_token_length: 0,
+      received_token_length: token ? token.length : 0,
+      expected_token_sha256_first8: null,
+      received_token_sha256_first8: getSha256First8(token),
+      result_status: 500,
+    }));
+    return new NextResponse('Instagram webhook verify token is not configured', { status: 500 });
+  }
+
+  // 2. If required query params are missing -> HTTP 400
+  if (!mode || !token || !challenge) {
+    console.info('[WEBHOOK_GET_DIAGNOSTIC]', JSON.stringify({
+      mode,
+      challenge_present: Boolean(challenge),
+      expected_token_present: true,
+      received_token_present: Boolean(token),
+      expected_token_length: expectedToken.length,
+      received_token_length: token ? token.length : 0,
+      expected_token_sha256_first8: getSha256First8(expectedToken),
+      received_token_sha256_first8: getSha256First8(token),
+      result_status: 400,
+    }));
+    return new NextResponse('Bad Request: Missing required query parameters', { status: 400 });
+  }
+
+  // 3. Verify challenge against expected token
   const verification = verifyMetaWebhookChallenge(mode, token, challenge, expectedToken);
 
   if (verification.success && verification.challenge) {
+    console.info('[WEBHOOK_GET_DIAGNOSTIC]', JSON.stringify({
+      mode,
+      challenge_present: true,
+      expected_token_present: true,
+      received_token_present: true,
+      expected_token_length: expectedToken.length,
+      received_token_length: token.length,
+      expected_token_sha256_first8: getSha256First8(expectedToken),
+      received_token_sha256_first8: getSha256First8(token),
+      result_status: 200,
+    }));
+
     await db.addAuditLog({
       event_type: 'WEBHOOK_CHALLENGE_VERIFIED',
       actor_type: 'webhook',
@@ -31,6 +82,18 @@ export async function GET(req: NextRequest) {
     return new NextResponse(verification.challenge, { status: 200 });
   }
 
+  // 4. Token or mode mismatch -> HTTP 403
+  console.info('[WEBHOOK_GET_DIAGNOSTIC]', JSON.stringify({
+    mode,
+    challenge_present: true,
+    expected_token_present: true,
+    received_token_present: true,
+    expected_token_length: expectedToken.length,
+    received_token_length: token.length,
+    expected_token_sha256_first8: getSha256First8(expectedToken),
+    received_token_sha256_first8: getSha256First8(token),
+    result_status: 403,
+  }));
   return new NextResponse('Forbidden: Invalid verify token', { status: 403 });
 }
 
