@@ -266,6 +266,7 @@ export const db = {
         never_reply_complaints: true,
         hide_spam: true,
         ai_tone: 'friendly_warm',
+        default_dm_reply: 'Hallo! Bedankt voor je bericht bij onze zaak in Gent. Hoe kunnen we je vandaag helpen? Onze openingsuren, adres en menu vind je op onze pagina!',
         updated_at: new Date().toISOString(),
       };
     }

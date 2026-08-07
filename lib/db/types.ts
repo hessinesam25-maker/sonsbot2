@@ -255,6 +255,7 @@ export interface AutomationRules {
   never_reply_complaints: boolean;
   hide_spam: boolean;
   ai_tone: string;
+  default_dm_reply?: string;
   updated_at: string;
 }
 

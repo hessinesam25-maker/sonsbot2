@@ -806,14 +806,14 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       expect(customerMsgsB[0].external_message_id).toBe('mid_004');
     }, 15000);
 
-    it('end-to-end: real Arabic greeting DM matches rule and attempts sendDirectMessage exactly once', async () => {
+    it('end-to-end: sends ONE fixed predefined DM reply regardless of language or text content, preserving comment variable rules', async () => {
       const { POST } = await import('../app/api/webhooks/instagram/route');
       const { db } = await import('../lib/db/store');
       const { encryptToken } = await import('../lib/security/encryption');
       const { InstagramConnector } = await import('../lib/connectors/instagram');
 
       const mockConn = {
-        id: 'conn_test_ar_greeting',
+        id: 'conn_test_fixed_dm',
         tenant_id: '11111111-1111-1111-1111-111111111111',
         platform: 'instagram',
         account_id: '17841400011111111',
@@ -827,13 +827,13 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       vi.spyOn(db, 'getConnections').mockResolvedValue([mockConn as any]);
       vi.spyOn(db, 'getConversations').mockResolvedValue([]);
       vi.spyOn(db, 'createConversation').mockResolvedValue({
-        id: 'conv_ar_uuid',
+        id: 'conv_fixed_dm_uuid',
         tenant_id: mockConn.tenant_id,
         platform: 'instagram',
         channel_type: 'dm',
-        external_id: 'cust_ar_001',
-        customer_id: 'cust_ar_001',
-        customer_name: 'Arabic User',
+        external_id: 'cust_fixed_dm_001',
+        customer_id: 'cust_fixed_dm_001',
+        customer_name: 'Fixed DM User',
         customer_language: 'ar',
         status: 'open',
         human_takeover: false,
@@ -843,38 +843,87 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       } as any);
       vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
 
-      const sendSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+      const sendDmSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
         success: true,
-        messageId: 'mid_outbound_resp_123',
+        messageId: 'mid_outbound_fixed_resp',
       });
 
-      const arPayload = {
+      const sendCommentSpy = vi.spyOn(InstagramConnector.prototype, 'sendCommentReply').mockResolvedValue({
+        success: true,
+        replyId: 'cmt_resp_123',
+      });
+
+      const testDmLanguages = ['هاي', 'Hello', 'Hallo', 'Bonjour', 'random_query_xyz'];
+
+      for (let i = 0; i < testDmLanguages.length; i++) {
+        const text = testDmLanguages[i];
+        const payload = {
+          object: 'instagram',
+          entry: [
+            {
+              id: '17841400011111111',
+              messaging: [
+                {
+                  sender: { id: `cust_dm_${i}` },
+                  recipient: { id: '17841400011111111' },
+                  timestamp: Date.now() + i,
+                  message: { mid: `mid_dm_lang_${i}`, text }
+                }
+              ]
+            }
+          ]
+        };
+
+        const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const res = await POST(req);
+        expect(res.status).toBe(200);
+      }
+
+      // Verify sendDirectMessage was called 5 times (once per DM) with the SAME fixed reply content
+      expect(sendDmSpy).toHaveBeenCalledTimes(5);
+      const firstCallContent = sendDmSpy.mock.calls[0][0].content;
+      for (const call of sendDmSpy.mock.calls) {
+        expect(call[0].content).toBe(firstCallContent);
+      }
+
+      // Test Comment Automation Isolation: Comments MUST continue to use variable rule logic
+      vi.spyOn(db, 'getComments').mockResolvedValue([]);
+      const commentPayload = {
         object: 'instagram',
         entry: [
           {
             id: '17841400011111111',
-            messaging: [
+            changes: [
               {
-                sender: { id: 'cust_ar_001' },
-                recipient: { id: '17841400011111111' },
-                timestamp: Date.now(),
-                message: { mid: 'mid_ar_greeting_001', text: 'أهلاً' }
+                field: 'comments',
+                value: {
+                  id: 'cmt_test_001',
+                  from: { id: 'user_cmt_1', username: 'commenter1' },
+                  text: 'Super lekere koffie in Gent!',
+                  media: { id: 'media_123' },
+                  created_time: Math.floor(Date.now() / 1000)
+                }
               }
             ]
           }
         ]
       };
 
-      const req = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+      const cmtReq = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(arPayload)
+        body: JSON.stringify(commentPayload)
       });
 
-      const res = await POST(req);
-      expect(res.status).toBe(200);
-      expect(sendSpy).toHaveBeenCalledTimes(1);
-    });
+      const cmtRes = await POST(cmtReq);
+      expect(cmtRes.status).toBe(200);
+      expect(sendCommentSpy).toHaveBeenCalledTimes(1);
+    }, 15000);
   });
 });
 

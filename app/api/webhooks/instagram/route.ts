@@ -352,130 +352,121 @@ export async function POST(req: NextRequest) {
           ignored_reason: null,
         }));
 
-        // Run Rule Engine if Human Takeover is disabled & Auto-reply is enabled
-        if (!conv.human_takeover && conv.auto_reply_enabled) {
-          const aiResponse = generateAIReply(sanitizedText, 'dm', kb, menu, rules);
+        // Process Instagram Direct Messages using Fixed DM Reply Architecture
+        const isDmAutoReplyEnabled = Boolean(conv.auto_reply_enabled && rules.auto_reply_factual_questions !== false);
+        const fixedDmReply = rules.default_dm_reply || (
+          kb.cafe_name && kb.address 
+            ? `Hallo! Bedankt voor je bericht bij ${kb.cafe_name}. Wij zijn gevestigd op ${kb.address}. Hoe kunnen we je vandaag helpen?`
+            : 'Hallo! Bedankt voor je bericht. Hoe kunnen we je vandaag helpen?'
+        );
 
-          await db.updateConversation(conv.id, { customer_language: aiResponse.detectedLanguage });
+        let blockedReason: string | null = null;
+        if (conv.human_takeover) {
+          blockedReason = 'Human takeover active on conversation';
+        } else if (!isDmAutoReplyEnabled) {
+          blockedReason = 'DM auto-reply is disabled by tenant settings';
+        } else if (!fixedDmReply) {
+          blockedReason = 'No fixed DM reply configured for tenant';
+        }
 
-          console.info('[RULE_REPLY_DIAGNOSTIC]', JSON.stringify({
-            rule_match_found: aiResponse.ruleMatchFound,
-            matched_rule_type: aiResponse.matchedRuleType || 'none',
-            reply_source: aiResponse.replySource || 'predefined_rule',
-            auto_send_eligible: aiResponse.isSafeForAutoReply && !aiResponse.requiresHumanReview,
-            human_review_required: aiResponse.requiresHumanReview,
-            blocked_reason: aiResponse.requiresHumanReview || !aiResponse.isSafeForAutoReply ? (aiResponse.reason || 'Flagged for human review') : null,
-          }));
+        const autoSendEligible = !conv.human_takeover && isDmAutoReplyEnabled && Boolean(fixedDmReply);
 
-          if (aiResponse.requiresHumanReview || !aiResponse.isSafeForAutoReply) {
+        console.info('[DM_AUTO_REPLY_DIAGNOSTIC]', JSON.stringify({
+          incoming_dm: true,
+          customer_message_inserted: Boolean(insertedMsg),
+          dm_auto_reply_enabled: isDmAutoReplyEnabled,
+          fixed_reply_configured: Boolean(fixedDmReply),
+          language_detection_required: false,
+          rule_engine_used: false,
+          auto_send_eligible: autoSendEligible,
+          blocked_reason: blockedReason,
+        }));
+
+        if (autoSendEligible && fixedDmReply) {
+          if (!tokenDecryptionSucceeded || !decryptedToken) {
+            console.info('[INSTAGRAM_SEND_DIAGNOSTIC]', JSON.stringify({
+              connection_found: true,
+              tenant_id_present: Boolean(authoritativeTenantId),
+              encrypted_token_present: Boolean(targetConn.access_token_encrypted),
+              token_decryption_succeeded: false,
+              recipient_id_present: Boolean(conv.external_id),
+              recipient_id_source: 'conv.external_id',
+              send_attempted: false,
+              meta_http_status: null,
+              meta_success: false,
+              meta_error_code: null,
+              meta_error_type: null,
+              ignored_reason: 'Token decryption failed',
+            }));
+
             await db.updateConversation(conv.id, { 
               status: 'needs_human_review',
               human_takeover: true,
             });
 
+            await db.addAuditLog({
+              tenant_id: authoritativeTenantId,
+              event_type: 'AI_AUTO_REPLY_FAILED',
+              actor_type: 'ai',
+              details: { conversation_id: conv.id, error: 'Token decryption failed' },
+            });
+            continue;
+          }
+
+          // Attempt outgoing message through Instagram Graph API with decrypted token
+          const sendResult = await connector.sendDirectMessage({
+            recipientId: conv.external_id,
+            content: fixedDmReply,
+            accessToken: decryptedToken,
+          });
+
+          console.info('[INSTAGRAM_SEND_DIAGNOSTIC]', JSON.stringify({
+            connection_found: true,
+            tenant_id_present: Boolean(authoritativeTenantId),
+            encrypted_token_present: true,
+            token_decryption_succeeded: true,
+            recipient_id_present: Boolean(conv.external_id),
+            recipient_id_source: 'conv.external_id',
+            send_attempted: true,
+            meta_http_status: sendResult.httpStatus || (sendResult.success ? 200 : 500),
+            meta_success: sendResult.success,
+            meta_error_code: sendResult.errorCode || null,
+            meta_error_type: sendResult.errorType || null,
+            meta_error_subcode: sendResult.errorSubcode || null,
+            meta_error_message: sendResult.error ? sendResult.error.slice(0, 150) : null,
+          }));
+
+          if (sendResult.success) {
             await db.addMessage({
               conversation_id: conv.id,
               tenant_id: authoritativeTenantId,
               sender_type: 'ai',
-              content: aiResponse.suggestedReply,
-              sanitized_content: aiResponse.suggestedReply,
-              ai_confidence: aiResponse.confidenceScore,
-              ai_suggested_reply: aiResponse.suggestedReply,
-              status: 'flagged_for_review',
+              external_message_id: sendResult.messageId,
+              content: fixedDmReply,
+              sanitized_content: fixedDmReply,
+              ai_confidence: 1.0,
+              status: 'auto_replied',
+            });
+
+            await db.updateConversation(conv.id, {
+              status: 'open',
+              last_message_at: new Date().toISOString(),
             });
 
             await db.addAuditLog({
               tenant_id: authoritativeTenantId,
-              event_type: 'CONVERSATION_FLAGGED_HUMAN_REVIEW',
+              event_type: 'AI_AUTO_REPLY_SENT',
               actor_type: 'ai',
-              details: { conversation_id: conv.id, reason: aiResponse.reason, confidence: aiResponse.confidenceScore },
+              details: { conversation_id: conv.id, type: 'fixed_dm_reply' },
             });
           } else {
-            if (!tokenDecryptionSucceeded || !decryptedToken) {
-              console.info('[INSTAGRAM_SEND_DIAGNOSTIC]', JSON.stringify({
-                connection_found: true,
-                tenant_id_present: Boolean(authoritativeTenantId),
-                encrypted_token_present: Boolean(targetConn.access_token_encrypted),
-                token_decryption_succeeded: false,
-                recipient_id_present: Boolean(conv.external_id),
-                recipient_id_source: 'conv.external_id',
-                send_attempted: false,
-                meta_http_status: null,
-                meta_success: false,
-                meta_error_code: null,
-                meta_error_type: null,
-                ignored_reason: 'Token decryption failed',
-              }));
-
-              await db.updateConversation(conv.id, { 
-                status: 'needs_human_review',
-                human_takeover: true,
-              });
-
-              await db.addAuditLog({
-                tenant_id: authoritativeTenantId,
-                event_type: 'AI_AUTO_REPLY_FAILED',
-                actor_type: 'ai',
-                details: { conversation_id: conv.id, error: 'Token decryption failed' },
-              });
-              continue;
-            }
-
-            // Attempt outgoing message through Instagram Graph API with decrypted token
-            const sendResult = await connector.sendDirectMessage({
-              recipientId: conv.external_id,
-              content: aiResponse.suggestedReply,
-              accessToken: decryptedToken,
+            // Outbound send failed: record audit log, but do NOT falsely store auto_replied in DB
+            await db.addAuditLog({
+              tenant_id: authoritativeTenantId,
+              event_type: 'AI_AUTO_REPLY_FAILED',
+              actor_type: 'ai',
+              details: { conversation_id: conv.id, error: sendResult.error || 'Instagram API request failed' },
             });
-
-            console.info('[INSTAGRAM_SEND_DIAGNOSTIC]', JSON.stringify({
-              connection_found: true,
-              tenant_id_present: Boolean(authoritativeTenantId),
-              encrypted_token_present: true,
-              token_decryption_succeeded: true,
-              recipient_id_present: Boolean(conv.external_id),
-              recipient_id_source: 'conv.external_id',
-              send_attempted: true,
-              meta_http_status: sendResult.httpStatus || (sendResult.success ? 200 : 500),
-              meta_success: sendResult.success,
-              meta_error_code: sendResult.errorCode || null,
-              meta_error_type: sendResult.errorType || null,
-              meta_error_subcode: sendResult.errorSubcode || null,
-              meta_error_message: sendResult.error ? sendResult.error.slice(0, 150) : null,
-            }));
-
-            if (sendResult.success) {
-              await db.addMessage({
-                conversation_id: conv.id,
-                tenant_id: authoritativeTenantId,
-                sender_type: 'ai',
-                external_message_id: sendResult.messageId,
-                content: aiResponse.suggestedReply,
-                sanitized_content: aiResponse.suggestedReply,
-                ai_confidence: aiResponse.confidenceScore,
-                status: 'auto_replied',
-              });
-
-              await db.addAuditLog({
-                tenant_id: authoritativeTenantId,
-                event_type: 'AI_AUTO_REPLY_SENT',
-                actor_type: 'ai',
-                details: { conversation_id: conv.id, language: aiResponse.detectedLanguage, confidence: aiResponse.confidenceScore },
-              });
-            } else {
-              // Outbound send failed: mark conversation for human review, record audit log, but do NOT falsely store auto_replied in DB
-              await db.updateConversation(conv.id, { 
-                status: 'needs_human_review',
-                human_takeover: true,
-              });
-
-              await db.addAuditLog({
-                tenant_id: authoritativeTenantId,
-                event_type: 'AI_AUTO_REPLY_FAILED',
-                actor_type: 'ai',
-                details: { conversation_id: conv.id, error: sendResult.error || 'Instagram API request failed' },
-              });
-            }
           }
         }
       } else if (event.eventType === 'comment') {
