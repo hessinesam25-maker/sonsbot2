@@ -286,6 +286,7 @@ export const db = {
         never_reply_complaints: true,
         hide_spam: true,
         ai_tone: 'friendly_warm',
+        default_dm_reply: 'Welkom! Hoe kunnen we u vandaag helpen?',
         updated_at: new Date().toISOString(),
       };
     }
@@ -486,6 +487,25 @@ export const db = {
       .select()
       .single();
     return data;
+  },
+
+  deleteTenant: async (tenantId: string): Promise<{ success: boolean; error?: string }> => {
+    const backend = getBackendSupabaseClient();
+    try {
+      const { error } = await backend
+        .from('tenants')
+        .delete()
+        .eq('id', tenantId);
+
+      if (error) {
+        console.error('Error deleting tenant:', error);
+        return { success: false, error: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error('Exception deleting tenant:', err);
+      return { success: false, error: err.message || 'Failed to delete restaurant.' };
+    }
   }
 };
 

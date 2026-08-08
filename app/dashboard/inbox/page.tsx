@@ -63,6 +63,7 @@ export default function UnifiedInboxPage() {
 
     const updated = await db.updateConversation(selectedConv.id, {
       human_takeover: updatedTakeover,
+      is_manual_takeover: updatedTakeover,
       auto_reply_enabled: !updatedTakeover,
       status: updatedStatus as any,
     });
@@ -102,8 +103,8 @@ export default function UnifiedInboxPage() {
   return (
     <div>
       <TopHeader 
-        title="Unified Customer Inbox (Live Supabase)" 
-        subtitle="Manage Instagram Direct Messages & Automated AI Human Handoffs" 
+        title={`Unified Customer Inbox — ${tenant?.name || 'Restaurant'}`} 
+        subtitle="Manage Instagram Direct Messages & Explicit Human Operator Handoffs" 
       />
 
       <div className="inbox-layout">
@@ -121,7 +122,7 @@ export default function UnifiedInboxPage() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={fetchConversations}>
+            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={fetchConversations} title="Refresh conversations">
               <RefreshCw size={14} />
             </button>
           </div>
@@ -134,7 +135,11 @@ export default function UnifiedInboxPage() {
 
           <div className="thread-list">
             {loading ? (
-              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading real Supabase rows...</div>
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading conversations for {tenant?.name || 'store'}...</div>
+            ) : filteredConversations.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No active conversations found for {tenant?.name || 'this restaurant'}.
+              </div>
             ) : (
               filteredConversations.map((conv) => (
                 <div 
@@ -151,7 +156,7 @@ export default function UnifiedInboxPage() {
                       {conv.status.replace('_', ' ')}
                     </span>
                     {conv.human_takeover && (
-                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-rose)', fontWeight: 700 }}>HANDOFF</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-rose)', fontWeight: 700 }}>HUMAN TAKEOVER</span>
                     )}
                   </div>
                 </div>
@@ -170,26 +175,25 @@ export default function UnifiedInboxPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
                     <span className="badge badge-open">Instagram DM</span>
                     <span className={`lang-badge lang-${selectedConv.customer_language}`}>
-                      Detected: {selectedConv.customer_language === 'nl' ? 'Dutch (BE)' : selectedConv.customer_language.toUpperCase()}
+                      Locale: {selectedConv.customer_language === 'nl' ? 'Dutch (BE)' : selectedConv.customer_language.toUpperCase()}
                     </span>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255,255,255,0.04)', padding: '0.5rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>Human Takeover</div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>Automation Control</div>
                     <div style={{ fontSize: '0.7rem', color: selectedConv.human_takeover ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                      {selectedConv.human_takeover ? 'AI Paused (Manual Control)' : 'AI Auto-Reply Active'}
+                      {selectedConv.human_takeover ? 'Human Operator Control Active' : 'Automatic DM Replies Active'}
                     </div>
                   </div>
-                  <label className="toggle-switch">
-                    <input 
-                      type="checkbox" 
-                      checked={selectedConv.human_takeover} 
-                      onChange={handleToggleTakeover} 
-                    />
-                    <span className="slider"></span>
-                  </label>
+                  <button 
+                    className={`btn ${selectedConv.human_takeover ? 'btn-secondary' : 'btn-primary'}`}
+                    style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
+                    onClick={handleToggleTakeover}
+                  >
+                    {selectedConv.human_takeover ? 'Resume Automatic Replies' : 'Take Over Conversation'}
+                  </button>
                 </div>
               </div>
 
@@ -197,43 +201,33 @@ export default function UnifiedInboxPage() {
                 {messages.length === 0 ? (
                   <div style={{ color: 'var(--text-muted)', textAlign: 'center', paddingTop: '2rem' }}>No messages yet in this conversation</div>
                 ) : (
-                  messages.map((msg) => (
-                    <div key={msg.id} className={`chat-bubble ${msg.sender_type}`}>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.2rem', display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{msg.sender_type === 'customer' ? selectedConv.customer_name : msg.sender_type === 'ai' ? '🤖 Ghent AI Assistant' : '👤 Support Agent'}</span>
-                        {msg.ai_confidence && (
-                          <span>Confidence: {(msg.ai_confidence * 100).toFixed(0)}%</span>
-                        )}
+                  messages.map((msg) => {
+                    const label = msg.sender_type === 'customer' 
+                      ? selectedConv.customer_name 
+                      : msg.sender_type === 'ai' 
+                        ? '🤖 Bot' 
+                        : '👤 Human Agent';
+
+                    return (
+                      <div key={msg.id} className={`chat-bubble ${msg.sender_type}`}>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.2rem', display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 600 }}>{label}</span>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div>{msg.content}</div>
                       </div>
-                      <div>{msg.content}</div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
               <div className="chat-input-area">
-                {aiSuggestedReply && (
-                  <div className="ai-suggestion-box">
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontWeight: 600, color: 'var(--accent-amber)', fontSize: '0.8rem' }}>
-                        <Sparkles size={14} /> AI Suggested Response (Belgian Dutch 1-2 Sentences):
-                      </div>
-                      <div style={{ marginTop: '0.25rem', color: 'var(--text-primary)' }}>{aiSuggestedReply}</div>
-                    </div>
-                    <button 
-                      className="btn btn-primary" 
-                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.6rem' }}
-                      onClick={() => setReplyInput(aiSuggestedReply)}
-                    >
-                      <Check size={12} /> Use Suggestion
-                    </button>
-                  </div>
-                )}
-
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <input 
                     type="text" 
-                    placeholder="Type your response to customer..." 
+                    placeholder={`Type response to ${selectedConv.customer_name}...`} 
                     className="form-input" 
                     style={{ flex: 1 }}
                     value={replyInput}
@@ -241,14 +235,14 @@ export default function UnifiedInboxPage() {
                     onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
                   />
                   <button className="btn btn-primary" onClick={handleSendReply}>
-                    <Send size={16} /> Send Manual Reply
+                    <Send size={16} /> Send Reply
                   </button>
                 </div>
               </div>
             </>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
-              Select a conversation to start messaging
+              Select a conversation from {tenant?.name || 'store'} to manage messages
             </div>
           )}
         </div>

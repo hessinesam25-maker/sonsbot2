@@ -157,6 +157,21 @@ export default function ContentStudioPage() {
           </div>
         </div>
       </div>
+
+      {/* Instagram Analytics & Insights Foundation Card */}
+      <div className="glass-card" style={{ marginTop: '1.5rem' }}>
+        <h3 style={{ fontSize: '1.15rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Sparkles size={20} color="var(--accent-amber)" /> Instagram Profile & Content Insights (Foundation Only)
+        </h3>
+
+        <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid var(--accent-amber)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-sm)', fontSize: '0.88rem', color: '#fff', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--accent-amber)', display: 'block', marginBottom: '0.35rem' }}>
+            Meta API Permission Notice: instagram_business_manage_insights Required
+          </strong>
+          Account reach, post engagement, impressions, and follower demographics require the <code>instagram_business_manage_insights</code> permission during Meta App Review.
+          Per project strategy, fake analytics metrics are strictly omitted. Once the Meta permission review is submitted and approved, live Graph API analytics endpoints will be linked directly to this section.
+        </div>
+      </div>
     </div>
   );
 }

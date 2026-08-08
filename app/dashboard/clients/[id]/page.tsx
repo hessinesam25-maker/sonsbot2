@@ -202,7 +202,7 @@ export default function RestaurantDetailsPage() {
       </div>
 
       {/* Onboarding Steps Card */}
-      <div className="glass-card">
+      <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
         <h3 style={{ fontSize: '1.15rem', marginBottom: '0.3rem' }}>{t('clients.onboardingTitle')}</h3>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>{t('clients.onboardingSubtitle')}</p>
 
@@ -260,6 +260,149 @@ export default function RestaurantDetailsPage() {
           })}
         </div>
       </div>
+
+      {/* Danger Zone: Safe Delete Restaurant */}
+      <DeleteRestaurantDangerZone tenant={tenant} />
+    </div>
+  );
+}
+
+function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
+  const router = useRouter();
+  const { selectedTenantId, switchTenant } = useAuth();
+  const [showModal, setShowModal] = useState(false);
+  const [confirmNameInput, setConfirmNameInput] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const nameMatches = confirmNameInput.trim() === tenant.name.trim();
+
+  const handleDelete = async () => {
+    if (!nameMatches || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      // Audit log prior to deletion
+      await db.addAuditLog({
+        tenant_id: tenant.id,
+        event_type: 'tenant.deleted',
+        actor_type: 'user',
+        details: { tenant_id: tenant.id, name: tenant.name },
+      });
+
+      const res = await db.deleteTenant(tenant.id);
+      if (!res.success) {
+        setDeleteError(res.error || 'Failed to delete restaurant client.');
+        setIsDeleting(false);
+        return;
+      }
+
+      // Fetch remaining tenants to switch context safely if deleted active tenant
+      const remainingTenants = await db.getAllTenants();
+      if (remainingTenants.length > 0) {
+        const nextTenant = remainingTenants.find(t => t.id !== tenant.id) || remainingTenants[0];
+        await switchTenant(nextTenant.id);
+      } else {
+        await switchTenant('11111111-1111-1111-1111-111111111111');
+      }
+
+      setShowModal(false);
+      router.push('/dashboard/clients');
+    } catch (err: any) {
+      setDeleteError(err.message || 'An unexpected error occurred during tenant deletion.');
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <div className="glass-card" style={{ border: '1px solid var(--accent-rose)', background: 'rgba(244, 63, 94, 0.05)' }}>
+      <h3 style={{ fontSize: '1.15rem', color: 'var(--accent-rose)', marginBottom: '0.4rem' }}>
+        Danger Zone: Delete Restaurant Store
+      </h3>
+      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.45 }}>
+        Permanently delete <strong>{tenant.name}</strong> (ID: {tenant.id}) and all associated platform connections, conversations, knowledge base data, menu items, and automation rules. This action cannot be undone.
+      </p>
+
+      <button 
+        className="btn" 
+        style={{ background: 'var(--accent-rose)', color: '#fff', fontSize: '0.85rem', padding: '0.5rem 1rem' }}
+        onClick={() => {
+          setConfirmNameInput('');
+          setDeleteError(null);
+          setShowModal(true);
+        }}
+      >
+        Delete Restaurant Store
+      </button>
+
+      {/* Confirmation Modal */}
+      {showModal && (
+        <div 
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            background: 'rgba(0,0,0,0.75)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 9999, 
+            padding: '1rem' 
+          }}
+        >
+          <div className="glass-card" style={{ maxWidth: '480px', width: '100%', border: '1px solid var(--accent-rose)', background: '#18181b', padding: '1.5rem' }}>
+            <h3 style={{ fontSize: '1.25rem', color: 'var(--accent-rose)', marginBottom: '0.75rem' }}>
+              Confirm Permanent Deletion
+            </h3>
+
+            <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
+              You are about to delete <strong>{tenant.name}</strong> (ID: <code style={{ fontSize: '0.78rem', color: 'var(--accent-amber)' }}>{tenant.id}</code>).
+            </p>
+
+            <div style={{ background: 'rgba(244, 63, 94, 0.1)', border: '1px solid var(--accent-rose)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', color: '#fff', marginBottom: '1rem' }}>
+              To confirm deletion, please type the restaurant name exactly:
+              <strong style={{ display: 'block', color: 'var(--accent-amber)', fontSize: '0.95rem', marginTop: '0.25rem' }}>{tenant.name}</strong>
+            </div>
+
+            {deleteError && (
+              <div style={{ background: 'rgba(244, 63, 94, 0.2)', color: 'var(--accent-rose)', padding: '0.65rem 0.85rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', marginBottom: '1rem' }}>
+                {deleteError}
+              </div>
+            )}
+
+            <input 
+              type="text" 
+              className="form-input" 
+              placeholder={`Type "${tenant.name}"`}
+              value={confirmNameInput}
+              onChange={(e) => setConfirmNameInput(e.target.value)}
+              style={{ width: '100%', marginBottom: '1.25rem', fontSize: '0.9rem' }}
+            />
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowModal(false)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn" 
+                style={{ 
+                  background: nameMatches ? 'var(--accent-rose)' : 'rgba(244, 63, 94, 0.3)', 
+                  color: '#fff', 
+                  cursor: nameMatches ? 'pointer' : 'not-allowed' 
+                }}
+                disabled={!nameMatches || isDeleting}
+                onClick={handleDelete}
+              >
+                {isDeleting ? 'Deleting...' : 'I understand, delete this store'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

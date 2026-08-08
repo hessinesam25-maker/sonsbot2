@@ -27,18 +27,16 @@ export const Sidebar: React.FC = () => {
   }, [isPlatformAdmin]);
 
   const navItems = [
-    { href: '/dashboard/clients', label: t('nav.clients'), icon: Building2 },
     { href: '/dashboard', label: t('nav.overview'), icon: BarChart3 },
     { href: '/dashboard/inbox', label: t('nav.inbox'), icon: Inbox },
     { href: '/dashboard/comments', label: t('nav.comments'), icon: MessageSquare },
-    { href: '/dashboard/content', label: t('nav.content'), icon: Image },
-    { href: '/dashboard/faqs', label: t('nav.faqs'), icon: HelpCircle },
+    { href: '/dashboard/rules', label: t('nav.rules'), icon: Sliders },
     { href: '/dashboard/knowledge', label: t('nav.knowledge'), icon: BookOpen },
     { href: '/dashboard/menu', label: t('nav.menu'), icon: Utensils },
-    { href: '/dashboard/google', label: t('nav.google'), icon: MapPin },
-    { href: '/dashboard/rules', label: t('nav.rules'), icon: Sliders },
+    { href: '/dashboard/content', label: t('nav.content'), icon: Image },
     { href: '/dashboard/integrations', label: t('nav.integrations'), icon: Share2 },
-    { href: '/dashboard/logs', label: t('nav.logs'), icon: FileText },
+    { href: '/dashboard/google', label: t('nav.google'), icon: MapPin },
+    { href: '/dashboard/clients', label: t('nav.clients'), icon: Building2 },
   ];
 
   const handleSignOut = async () => {

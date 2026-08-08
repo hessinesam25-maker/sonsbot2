@@ -39,7 +39,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [role, setRole] = useState<'admin' | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState<boolean>(false);
-  const [selectedTenantId, setSelectedTenantId] = useState<string>('11111111-1111-1111-1111-111111111111');
+  const [selectedTenantId, setSelectedTenantId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sonsbot_selected_tenant_id');
+      if (saved) return saved;
+    }
+    return '11111111-1111-1111-1111-111111111111';
+  });
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const clearState = () => {
@@ -50,12 +56,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsPlatformAdmin(false);
   };
 
-  const verifyPlatformAdmin = async (userId: string) => {
+  const verifyPlatformAdmin = async (userId: string, targetTenantId?: string) => {
     try {
       if (!userId) {
         clearState();
         return false;
       }
+
+      const activeTenantId = targetTenantId || selectedTenantId;
 
       // Query platform_admins strictly by auth_user_id = user.id
       const { data: adminData, error } = await supabaseFrontend
@@ -70,15 +78,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRole('admin');
         setUser({
           id: adminData.id,
-          tenant_id: selectedTenantId,
+          tenant_id: activeTenantId,
           email: adminData.email,
           name: adminData.name,
           role: 'owner',
           created_at: adminData.created_at,
         });
 
-        const activeTenant = await db.getTenant(selectedTenantId);
-        setTenant(activeTenant);
+        const activeTenant = await db.getTenant(activeTenantId);
+        if (activeTenant) {
+          setTenant(activeTenant);
+          if (activeTenant.id !== selectedTenantId) {
+            setSelectedTenantId(activeTenant.id);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('sonsbot_selected_tenant_id', activeTenant.id);
+            }
+          }
+        }
         return true;
       } else {
         // Authenticated in Supabase Auth but NOT listed in public.platform_admins -> REJECT ACCESS
@@ -169,8 +185,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     setSelectedTenantId(tenantId);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sonsbot_selected_tenant_id', tenantId);
+    }
     const newTenant = await db.getTenant(tenantId);
     setTenant(newTenant);
+    if (user) {
+      setUser({ ...user, tenant_id: tenantId });
+    }
   };
 
   const logout = async () => {

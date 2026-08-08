@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { TopHeader } from '@/components/TopHeader';
-import { Sliders, Shield, Save, CheckCircle2, Sparkles } from 'lucide-react';
+import { Send, MessageSquare, Shield, Save, CheckCircle2 } from 'lucide-react';
 import { AutomationRules } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { db } from '@/lib/db/store';
 
 export default function RulesPage() {
   const { selectedTenantId, tenant } = useAuth();
+  const [activeTab, setActiveTab] = useState<'dm' | 'comments'>('dm');
   const [rules, setRules] = useState<AutomationRules>({
     id: 'rules_001',
     tenant_id: selectedTenantId,
@@ -19,9 +20,11 @@ export default function RulesPage() {
     never_reply_complaints: true,
     hide_spam: true,
     ai_tone: 'friendly_warm',
+    default_dm_reply: '',
     updated_at: new Date().toISOString(),
   });
 
+  const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
@@ -35,82 +38,121 @@ export default function RulesPage() {
   }, [selectedTenantId]);
 
   const handleSave = async () => {
-    await db.updateAutomationRules({ ...rules, tenant_id: selectedTenantId }, selectedTenantId);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    setSaving(true);
+    try {
+      await db.updateAutomationRules({ ...rules, tenant_id: selectedTenantId }, selectedTenantId);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3500);
+    } catch (err) {
+      console.error('Error saving automation rules:', err);
+    } finally {
+      setSaving(false);
+    }
   };
-
 
   return (
     <div>
       <TopHeader 
-        title="Automation Rules & AI Guardrails" 
-        subtitle="Confidence Thresholds, Comment Controls & Human Handoff Rules" 
+        title={`Automation Settings — ${tenant?.name || 'Restaurant'}`} 
+        subtitle="Manage Instagram Direct Message Fixed Auto-Reply & Public Comment Moderation Rules" 
       />
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
-        <button className="btn btn-primary" onClick={handleSave}>
-          <Save size={16} /> Save Automation Settings
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        {/* Navigation Tabs */}
+        <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(0,0,0,0.3)', padding: '0.3rem', borderRadius: 'var(--radius-sm)' }}>
+          <button 
+            className={`btn ${activeTab === 'dm' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}
+            onClick={() => setActiveTab('dm')}
+          >
+            <Send size={15} /> Direct Message (DM) Automation
+          </button>
+          <button 
+            className={`btn ${activeTab === 'comments' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}
+            onClick={() => setActiveTab('comments')}
+          >
+            <MessageSquare size={15} /> Comments Automation
+          </button>
+        </div>
+
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          <Save size={16} /> {saving ? 'Saving...' : 'Save Automation Settings'}
         </button>
       </div>
 
       {savedSuccess && (
         <div style={{ background: 'rgba(16, 185, 129, 0.2)', border: '1px solid var(--accent-emerald)', padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-emerald)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <CheckCircle2 size={18} /> Automation Rules successfully updated!
+          <CheckCircle2 size={18} /> Automation settings updated for {tenant?.name || 'active restaurant'}!
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-        {/* Confidence & Rate Limits */}
-        <div className="glass-card">
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Sliders size={20} color="var(--accent-amber)" /> Confidence & Rate Limits
-          </h3>
-
-          <div className="form-group">
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
-              <label className="form-label">Minimum AI Confidence Score Required</label>
-              <span style={{ fontWeight: 800, color: 'var(--accent-amber)' }}>{(rules.min_confidence_score * 100).toFixed(0)}%</span>
+      {/* Tab 1: Dedicated DM Automation Settings */}
+      {activeTab === 'dm' && (
+        <div className="glass-card" style={{ maxWidth: '800px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Send size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>Instagram DM Auto Reply</h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Configured for: <strong>{tenant?.name || 'Restaurant Client'}</strong>
+                </span>
+              </div>
             </div>
-            <input 
-              type="range" 
-              min="0.50" 
-              max="0.99" 
-              step="0.01"
-              value={rules.min_confidence_score}
-              onChange={(e) => setRules({ ...rules, min_confidence_score: parseFloat(e.target.value) })}
-              style={{ width: '100%', accentColor: 'var(--accent-amber)' }}
-            />
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-              Queries with AI confidence below this threshold will automatically be flagged as "Needs human review".
-            </p>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rules.auto_reply_factual_questions ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
+                {rules.auto_reply_factual_questions ? 'DM Auto-Reply Active' : 'DM Auto-Reply Paused'}
+              </span>
+              <label className="toggle-switch">
+                <input 
+                  type="checkbox" 
+                  checked={rules.auto_reply_factual_questions} 
+                  onChange={(e) => setRules({ ...rules, auto_reply_factual_questions: e.target.checked })} 
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
           </div>
 
-          <div className="form-group" style={{ marginTop: '1.5rem' }}>
-            <label className="form-label">Maximum Automated Public Comment Replies / Hour</label>
-            <input 
-              type="number" 
-              className="form-input" 
-              value={rules.max_public_replies_per_hour}
-              onChange={(e) => setRules({ ...rules, max_public_replies_per_hour: parseInt(e.target.value) })}
+          <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5, background: 'rgba(0,0,0,0.2)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)' }}>
+            Automatically reply to new Instagram direct messages with this message.
+          </p>
+
+          <div className="form-group">
+            <label className="form-label" style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+              Default DM Reply Message
+            </label>
+            <textarea 
+              className="form-textarea" 
+              rows={4}
+              placeholder="e.g. Bedankt voor je bericht! Welkom bij ons restaurant. Onze openingsuren zijn vandaag van 08:00 tot 18:00."
+              value={rules.default_dm_reply || ''}
+              onChange={(e) => setRules({ ...rules, default_dm_reply: e.target.value })}
+              style={{ width: '100%', fontSize: '0.92rem', lineHeight: 1.5 }}
             />
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-              Rate limit cap to protect Instagram account reputation.
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+              This response is sent immediately when a customer sends an Instagram Direct Message to this restaurant.
             </p>
           </div>
         </div>
+      )}
 
-        {/* Comment Management Safeguards */}
-        <div className="glass-card">
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Shield size={20} color="var(--accent-emerald)" /> Comment Automation Toggles
+      {/* Tab 2: Comments Automation Settings */}
+      {activeTab === 'comments' && (
+        <div className="glass-card" style={{ maxWidth: '800px' }}>
+          <h3 style={{ fontSize: '1.15rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Shield size={20} color="var(--accent-emerald)" /> Post & Reel Comment Moderation Rules
           </h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Auto-Reply to Positive Comments</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Send varied, friendly thank you replies on posts</div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>Auto-Reply to Positive Comments</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Send appreciative replies to positive user comments on posts</div>
               </div>
               <label className="toggle-switch">
                 <input 
@@ -124,23 +166,8 @@ export default function RulesPage() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Auto-Reply to Factual Questions</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Answer opening hours, location & menu questions</div>
-              </div>
-              <label className="toggle-switch">
-                <input 
-                  type="checkbox" 
-                  checked={rules.auto_reply_factual_questions} 
-                  onChange={(e) => setRules({ ...rules, auto_reply_factual_questions: e.target.checked })} 
-                />
-                <span className="slider"></span>
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Never Auto-Reply to Complaints</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--accent-rose)' }}>Mandatory human handoff for negative feedback & refunds</div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>Never Auto-Reply to Complaints</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--accent-rose)' }}>Route negative feedback or complaints to human operator review</div>
               </div>
               <label className="toggle-switch">
                 <input 
@@ -154,8 +181,8 @@ export default function RulesPage() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Hide or Flag Spam Comments</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Automatically hide promotional or bot spam comments</div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>Hide Spam Comments</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Automatically flag or hide promotional spam on Instagram posts</div>
               </div>
               <label className="toggle-switch">
                 <input 
@@ -166,9 +193,23 @@ export default function RulesPage() {
                 <span className="slider"></span>
               </label>
             </div>
+
+            <div className="form-group" style={{ marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+              <label className="form-label">Maximum Automated Public Comment Replies / Hour</label>
+              <input 
+                type="number" 
+                className="form-input" 
+                value={rules.max_public_replies_per_hour}
+                onChange={(e) => setRules({ ...rules, max_public_replies_per_hour: parseInt(e.target.value) || 20 })}
+                style={{ maxWidth: '200px' }}
+              />
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                Rate limiting threshold to protect Instagram account standing.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
