@@ -101,6 +101,7 @@ export async function GET(req: NextRequest) {
  * POST Handler for Instagram Message & Comment Webhooks
  */
 export async function POST(req: NextRequest) {
+  console.log("[IG-WEBHOOK-DEBUG] POST HIT", new Date().toISOString());
   try {
     const rawBody = await req.text();
     const signature = req.headers.get('x-hub-signature-256');
