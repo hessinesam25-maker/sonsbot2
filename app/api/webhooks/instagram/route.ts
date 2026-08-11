@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyMetaWebhookChallenge } from '@/lib/security/signatures';
+import { verifyMetaWebhookChallenge, verifyMetaSignature } from '@/lib/security/signatures';
 import { InstagramConnector } from '@/lib/connectors/instagram';
 import { generateAIReply } from '@/lib/ai/engine';
 import { db } from '@/lib/db/store';
@@ -114,6 +114,12 @@ export async function POST(req: NextRequest) {
     if (appSecret || process.env.NODE_ENV === 'production') {
       const textIsValid = connector.verifySignature(rawBodyText, signature);
       const bufferIsValid = connector.verifySignature(rawBodyBuffer, signature);
+
+      const instagramSecret = process.env.INSTAGRAM_APP_SECRET;
+      const metaSecret = process.env.META_APP_SECRET;
+      const instagramValid = instagramSecret ? verifyMetaSignature(rawBodyText, signature, instagramSecret) : false;
+      const metaValid = metaSecret ? verifyMetaSignature(rawBodyText, signature, metaSecret) : false;
+
       console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: textIsValid }));
       console.log("[IG-WEBHOOK-DEBUG] RAW_BODY_SIGNATURE_CHECK", JSON.stringify({
         text_signature_valid: textIsValid,
@@ -121,6 +127,13 @@ export async function POST(req: NextRequest) {
         body_byte_length: rawBodyBuffer.length,
         body_text_length: rawBodyText.length
       }));
+      console.log("[IG-WEBHOOK-DEBUG] SECRET_SOURCE_CHECK", JSON.stringify({
+        instagram_secret_present: Boolean(instagramSecret),
+        instagram_secret_valid: instagramValid,
+        meta_secret_present: Boolean(metaSecret),
+        meta_secret_valid: metaValid
+      }));
+
       const isValid = textIsValid;
       if (!isValid) {
         await db.addAuditLog({
