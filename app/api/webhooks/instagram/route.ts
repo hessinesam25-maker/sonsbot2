@@ -108,23 +108,40 @@ export async function POST(req: NextRequest) {
 
     // 1. Validate HMAC signature in production or whenever INSTAGRAM_APP_SECRET is set
     const appSecret = process.env.INSTAGRAM_APP_SECRET;
+    const signaturePresent = Boolean(signature);
     if (appSecret || process.env.NODE_ENV === 'production') {
       const isValid = connector.verifySignature(rawBody, signature);
+      console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: isValid }));
       if (!isValid) {
         await db.addAuditLog({
           event_type: 'WEBHOOK_INVALID_SIGNATURE',
           actor_type: 'webhook',
           details: { platform: 'instagram', signatureHeader: signature },
         });
+        console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 401 }));
         return NextResponse.json({ error: 'Invalid HMAC signature' }, { status: 401 });
       }
+    } else {
+      console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: true }));
     }
 
-    const payload = JSON.parse(rawBody);
+    let payload: any;
+    let parsingSucceeded = false;
+    try {
+      payload = JSON.parse(rawBody);
+      parsingSucceeded = true;
+    } catch (parseErr) {
+      parsingSucceeded = false;
+    }
+    console.log("[IG-WEBHOOK-DEBUG] BODY_PARSED", JSON.stringify({ parsing_succeeded: parsingSucceeded }));
+
     const events = connector.parseWebhookPayload(payload);
+    console.log("[IG-WEBHOOK-DEBUG] INSTAGRAM_EVENT_DETECTED", JSON.stringify({ event_detected: events.length > 0, events_count: events.length }));
 
     const allConnections = await db.getConnections();
     const igConnections = allConnections.filter(c => c.platform === 'instagram' && c.is_active);
+
+    console.log("[IG-WEBHOOK-DEBUG] CONNECTION_LOOKUP", JSON.stringify({ active_instagram_connections_count: igConnections.length, matching_connection_found: igConnections.length > 0 }));
 
     const DEPLOYMENT_COMMIT_SHA = 'a8dfb3c+fix_persistence';
 
@@ -137,6 +154,7 @@ export async function POST(req: NextRequest) {
 
     if (igConnections.length === 0) {
       console.warn('Rejected webhook: No active Instagram platform connection found.');
+      console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 403 }));
       return NextResponse.json({ error: 'Disconnected or unknown platform account' }, { status: 403 });
     }
 
@@ -181,6 +199,7 @@ export async function POST(req: NextRequest) {
       }
 
       const authoritativeTenantId = targetConn.tenant_id;
+      console.log("[IG-WEBHOOK-DEBUG] TENANT_RESOLUTION", JSON.stringify({ tenant_resolved: Boolean(authoritativeTenantId) }));
       let decryptedToken: string | null = null;
       let tokenDecryptionSucceeded = false;
 
@@ -245,6 +264,7 @@ export async function POST(req: NextRequest) {
         const conversationLookupFound = Boolean(conv);
         let conversationCreateAttempted = false;
         let conversationCreateSucceeded = false;
+        let convCreateError: string | null = null;
 
         if (conv) {
           existingMessages = await db.getMessages(conv.id);
@@ -275,26 +295,35 @@ export async function POST(req: NextRequest) {
           }
         } else {
           conversationCreateAttempted = true;
-          // Persist new conversation to Supabase DB so Foreign Key constraints succeed
-          conv = await db.createConversation({
-            id: crypto.randomUUID(),
-            tenant_id: authoritativeTenantId,
-            platform: 'instagram',
-            channel_type: 'dm',
-            external_id: event.senderId,
-            customer_id: event.senderId,
-            customer_name: event.senderName,
-            customer_language: 'nl',
-            status: 'open',
-            human_takeover: false,
-            auto_reply_enabled: true,
-            last_message_at: new Date().toISOString(),
-          });
-          conversationCreateSucceeded = Boolean(conv);
+          try {
+            // Persist new conversation to Supabase DB so Foreign Key constraints succeed
+            conv = await db.createConversation({
+              id: crypto.randomUUID(),
+              tenant_id: authoritativeTenantId,
+              platform: 'instagram',
+              channel_type: 'dm',
+              external_id: event.senderId,
+              customer_id: event.senderId,
+              customer_name: event.senderName,
+              customer_language: 'nl',
+              status: 'open',
+              human_takeover: false,
+              auto_reply_enabled: true,
+              last_message_at: new Date().toISOString(),
+            });
+            conversationCreateSucceeded = Boolean(conv);
+          } catch (err: any) {
+            convCreateError = err?.message ? err.message.slice(0, 100) : 'createConversation_failed';
+            conversationCreateSucceeded = false;
+          }
         }
 
         // Verify conversation row actually exists in Supabase DB before inserting message
         const convExistsInDb = conv ? await db.verifyConversationExists(conv.id, authoritativeTenantId) : false;
+        console.log("[IG-WEBHOOK-DEBUG] CONVERSATION_LOOKUP_OR_CREATE", JSON.stringify({
+          success: Boolean(conv && convExistsInDb),
+          error: (conv && convExistsInDb) ? null : (convCreateError || 'missing_conversation_row')
+        }));
 
         if (!conv || !convExistsInDb) {
           console.error('[CONVERSATION_PERSISTENCE_DIAGNOSTIC]', JSON.stringify({
@@ -312,15 +341,28 @@ export async function POST(req: NextRequest) {
         }
 
         // Add incoming customer message under authoritative tenant
-        const insertedMsg = await db.addMessage({
-          conversation_id: conv.id,
-          tenant_id: authoritativeTenantId,
-          sender_type: 'customer',
-          external_message_id: event.externalId,
-          content: event.content,
-          sanitized_content: sanitizedText,
-          status: 'received',
-        });
+        console.log("[IG-WEBHOOK-DEBUG] MESSAGE_INSERT ATTEMPT", JSON.stringify({ attempted: true }));
+        let insertedMsg: any = null;
+        let msgInsertError: string | null = null;
+        try {
+          insertedMsg = await db.addMessage({
+            conversation_id: conv.id,
+            tenant_id: authoritativeTenantId,
+            sender_type: 'customer',
+            external_message_id: event.externalId,
+            content: event.content,
+            sanitized_content: sanitizedText,
+            status: 'received',
+          });
+        } catch (err: any) {
+          msgInsertError = err?.message ? err.message.slice(0, 100) : 'addMessage_failed';
+        }
+
+        console.log("[IG-WEBHOOK-DEBUG] MESSAGE_INSERT RESULT", JSON.stringify({
+          attempted: true,
+          success: Boolean(insertedMsg),
+          error: insertedMsg ? null : (msgInsertError || 'insert_returned_null')
+        }));
 
         console.info('[MESSAGE_ID_DIAGNOSTIC]', JSON.stringify({
           meta_mid_present: keySource === 'meta_mid',
@@ -548,9 +590,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 200 }));
     return NextResponse.json({ success: true, processedEvents: events.length }, { status: 200 });
   } catch (error: any) {
     console.error('Webhook processing error:', error);
+    console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 500 }));
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }
