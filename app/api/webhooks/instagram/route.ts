@@ -111,7 +111,14 @@ export async function POST(req: NextRequest) {
     const signaturePresent = Boolean(signature);
     if (appSecret || process.env.NODE_ENV === 'production') {
       const isValid = connector.verifySignature(rawBody, signature);
+      const freshConnector = new InstagramConnector();
+      const freshIsValid = freshConnector.verifySignature(rawBody, signature);
       console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: isValid }));
+      console.log("[IG-WEBHOOK-DEBUG] SECRET_INSTANCE_CHECK", JSON.stringify({
+        module_connector_valid: isValid,
+        fresh_connector_valid: freshIsValid,
+        env_secret_present: Boolean(appSecret)
+      }));
       if (!isValid) {
         await db.addAuditLog({
           event_type: 'WEBHOOK_INVALID_SIGNATURE',
