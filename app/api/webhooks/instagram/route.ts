@@ -103,22 +103,25 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   console.log("[IG-WEBHOOK-DEBUG] POST HIT", new Date().toISOString());
   try {
-    const rawBody = await req.text();
+    const arrayBuffer = await req.arrayBuffer();
+    const rawBodyBuffer = Buffer.from(arrayBuffer);
+    const rawBodyText = rawBodyBuffer.toString('utf8');
     const signature = req.headers.get('x-hub-signature-256');
 
     // 1. Validate HMAC signature in production or whenever INSTAGRAM_APP_SECRET is set
     const appSecret = process.env.INSTAGRAM_APP_SECRET;
     const signaturePresent = Boolean(signature);
     if (appSecret || process.env.NODE_ENV === 'production') {
-      const isValid = connector.verifySignature(rawBody, signature);
-      const freshConnector = new InstagramConnector();
-      const freshIsValid = freshConnector.verifySignature(rawBody, signature);
-      console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: isValid }));
-      console.log("[IG-WEBHOOK-DEBUG] SECRET_INSTANCE_CHECK", JSON.stringify({
-        module_connector_valid: isValid,
-        fresh_connector_valid: freshIsValid,
-        env_secret_present: Boolean(appSecret)
+      const textIsValid = connector.verifySignature(rawBodyText, signature);
+      const bufferIsValid = connector.verifySignature(rawBodyBuffer, signature);
+      console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: textIsValid }));
+      console.log("[IG-WEBHOOK-DEBUG] RAW_BODY_SIGNATURE_CHECK", JSON.stringify({
+        text_signature_valid: textIsValid,
+        buffer_signature_valid: bufferIsValid,
+        body_byte_length: rawBodyBuffer.length,
+        body_text_length: rawBodyText.length
       }));
+      const isValid = textIsValid;
       if (!isValid) {
         await db.addAuditLog({
           event_type: 'WEBHOOK_INVALID_SIGNATURE',
@@ -135,7 +138,7 @@ export async function POST(req: NextRequest) {
     let payload: any;
     let parsingSucceeded = false;
     try {
-      payload = JSON.parse(rawBody);
+      payload = JSON.parse(rawBodyText);
       parsingSucceeded = true;
     } catch (parseErr) {
       parsingSucceeded = false;
