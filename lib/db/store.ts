@@ -148,7 +148,7 @@ export const db = {
       .from('knowledge_base')
       .select('*')
       .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
 
     if (!data) {
       return {
