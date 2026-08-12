@@ -31,31 +31,51 @@ function getProjectRef(urlStr: string | undefined | null): string | null {
   }
 }
 
+function getJwtRole(keyVal: string | undefined | null): string | null {
+  if (!keyVal || typeof keyVal !== 'string') return null;
+  const parts = keyVal.trim().split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const payloadJson = Buffer.from(parts[1], 'base64').toString('utf8');
+    const payload = JSON.parse(payloadJson);
+    return payload.role || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Backend Client - Uses Service Role Key / Secret Key strictly on server-side / API routes
  */
 export function getBackendSupabaseClient() {
+  const envSonsbotSecret = process.env.SONSBOT_SUPABASE_SECRET;
   const envSecretKey = process.env.SUPABASE_SECRET_KEY;
   const envServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+  const sonsbotSecretPresent = Boolean(envSonsbotSecret && envSonsbotSecret.trim().length > 0);
   const secretKeyPresent = Boolean(envSecretKey && envSecretKey.trim().length > 0);
   const legacyServiceKeyPresent = Boolean(envServiceKey && envServiceKey.trim().length > 0);
 
   let selectedKey: string;
-  let selectedKeySource: 'supabase_secret_key' | 'service_role_env' | 'anon_fallback';
+  let selectedKeySource: 'sonsbot_supabase_secret' | 'supabase_secret_key' | 'service_role_env' | 'anon_fallback';
 
-  if (secretKeyPresent) {
+  if (sonsbotSecretPresent) {
+    selectedKey = envSonsbotSecret!.trim();
+    selectedKeySource = 'sonsbot_supabase_secret';
+  } else if (secretKeyPresent) {
     selectedKey = envSecretKey!.trim();
     selectedKeySource = 'supabase_secret_key';
   } else if (legacyServiceKeyPresent) {
     selectedKey = envServiceKey!.trim();
     selectedKeySource = 'service_role_env';
   } else {
-    selectedKey = supabaseAnonKey;
+    selectedKey = (supabaseAnonKey || '').trim();
     selectedKeySource = 'anon_fallback';
   }
 
   console.log('[SUPABASE-DEBUG] BACKEND_CLIENT_CONFIG', JSON.stringify({
+    sonsbot_secret_present: sonsbotSecretPresent,
+    sonsbot_secret_type: getKeyType(envSonsbotSecret),
     secret_key_present: secretKeyPresent,
     secret_key_type: getKeyType(envSecretKey),
     legacy_service_key_present: legacyServiceKeyPresent,
@@ -66,6 +86,14 @@ export function getBackendSupabaseClient() {
     supabase_project_ref: getProjectRef(supabaseUrl)
   }));
 
-  return createClient(supabaseUrl, selectedKey);
+  const jwtRole = getJwtRole(selectedKey);
+
+  if (selectedKeySource === 'anon_fallback' || jwtRole === 'anon') {
+    console.warn('[SUPABASE-WARN] Backend client operating with anon role key! RLS-protected tables (e.g. platform_connections) will return 0 rows. Configure SONSBOT_SUPABASE_SECRET or SUPABASE_SERVICE_ROLE_KEY in Hostinger environment.');
+  }
+
+  return createClient(supabaseUrl, selectedKey.trim());
 }
+
+
 
