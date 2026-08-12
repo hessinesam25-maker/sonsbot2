@@ -32,23 +32,40 @@ function getProjectRef(urlStr: string | undefined | null): string | null {
 }
 
 /**
- * Backend Client - Uses Service Role Key strictly on server-side / API routes
+ * Backend Client - Uses Service Role Key / Secret Key strictly on server-side / API routes
  */
 export function getBackendSupabaseClient() {
+  const envSecretKey = process.env.SUPABASE_SECRET_KEY;
   const envServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const serviceKeyPresent = Boolean(envServiceKey && envServiceKey.trim().length > 0);
-  const serviceKey = envServiceKey || supabaseAnonKey;
-  const selectedKeySource = serviceKeyPresent ? 'service_role_env' : 'anon_fallback';
+
+  const secretKeyPresent = Boolean(envSecretKey && envSecretKey.trim().length > 0);
+  const legacyServiceKeyPresent = Boolean(envServiceKey && envServiceKey.trim().length > 0);
+
+  let selectedKey: string;
+  let selectedKeySource: 'supabase_secret_key' | 'service_role_env' | 'anon_fallback';
+
+  if (secretKeyPresent) {
+    selectedKey = envSecretKey!.trim();
+    selectedKeySource = 'supabase_secret_key';
+  } else if (legacyServiceKeyPresent) {
+    selectedKey = envServiceKey!.trim();
+    selectedKeySource = 'service_role_env';
+  } else {
+    selectedKey = supabaseAnonKey;
+    selectedKeySource = 'anon_fallback';
+  }
 
   console.log('[SUPABASE-DEBUG] BACKEND_CLIENT_CONFIG', JSON.stringify({
-    service_key_present: serviceKeyPresent,
-    service_key_type: getKeyType(envServiceKey),
+    secret_key_present: secretKeyPresent,
+    secret_key_type: getKeyType(envSecretKey),
+    legacy_service_key_present: legacyServiceKeyPresent,
+    legacy_service_key_type: getKeyType(envServiceKey),
     anon_key_present: Boolean(supabaseAnonKey && supabaseAnonKey.trim().length > 0),
     anon_key_type: getKeyType(supabaseAnonKey),
     selected_key_source: selectedKeySource,
     supabase_project_ref: getProjectRef(supabaseUrl)
   }));
 
-  return createClient(supabaseUrl, serviceKey);
+  return createClient(supabaseUrl, selectedKey);
 }
 
