@@ -9,10 +9,46 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOi
  */
 export const supabaseFrontend = createBrowserSupabaseClient();
 
+type KeyType = 'sb_secret' | 'sb_publishable' | 'legacy_jwt' | 'other' | 'missing';
+
+function getKeyType(keyVal: string | undefined | null): KeyType {
+  if (!keyVal || keyVal.trim().length === 0) return 'missing';
+  const k = keyVal.trim();
+  if (k.startsWith('sb_secret_')) return 'sb_secret';
+  if (k.startsWith('sb_publishable_')) return 'sb_publishable';
+  if (k.startsWith('eyJ')) return 'legacy_jwt';
+  return 'other';
+}
+
+function getProjectRef(urlStr: string | undefined | null): string | null {
+  if (!urlStr) return null;
+  try {
+    const host = new URL(urlStr).hostname;
+    const parts = host.split('.');
+    return parts.length >= 3 ? parts[0] : host;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Backend Client - Uses Service Role Key strictly on server-side / API routes
  */
 export function getBackendSupabaseClient() {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
+  const envServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKeyPresent = Boolean(envServiceKey && envServiceKey.trim().length > 0);
+  const serviceKey = envServiceKey || supabaseAnonKey;
+  const selectedKeySource = serviceKeyPresent ? 'service_role_env' : 'anon_fallback';
+
+  console.log('[SUPABASE-DEBUG] BACKEND_CLIENT_CONFIG', JSON.stringify({
+    service_key_present: serviceKeyPresent,
+    service_key_type: getKeyType(envServiceKey),
+    anon_key_present: Boolean(supabaseAnonKey && supabaseAnonKey.trim().length > 0),
+    anon_key_type: getKeyType(supabaseAnonKey),
+    selected_key_source: selectedKeySource,
+    supabase_project_ref: getProjectRef(supabaseUrl)
+  }));
+
   return createClient(supabaseUrl, serviceKey);
 }
+
