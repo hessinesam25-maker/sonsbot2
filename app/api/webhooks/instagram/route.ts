@@ -101,7 +101,6 @@ export async function GET(req: NextRequest) {
  * POST Handler for Instagram Message & Comment Webhooks
  */
 export async function POST(req: NextRequest) {
-  console.log("[IG-WEBHOOK-DEBUG] POST HIT", new Date().toISOString());
   try {
     const arrayBuffer = await req.arrayBuffer();
     const rawBodyBuffer = Buffer.from(arrayBuffer);
@@ -110,66 +109,33 @@ export async function POST(req: NextRequest) {
 
     // 1. Validate HMAC signature in production or whenever INSTAGRAM_APP_SECRET is set
     const appSecret = process.env.INSTAGRAM_APP_SECRET;
-    const signaturePresent = Boolean(signature);
     if (appSecret || process.env.NODE_ENV === 'production') {
       const textIsValid = connector.verifySignature(rawBodyText, signature);
-      const bufferIsValid = connector.verifySignature(rawBodyBuffer, signature);
-
-      const instagramSecret = process.env.INSTAGRAM_APP_SECRET;
-      const metaSecret = process.env.META_APP_SECRET;
-      const instagramValid = instagramSecret ? verifyMetaSignature(rawBodyText, signature, instagramSecret) : false;
-      const metaValid = metaSecret ? verifyMetaSignature(rawBodyText, signature, metaSecret) : false;
-
-      console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: textIsValid }));
-      console.log("[IG-WEBHOOK-DEBUG] RAW_BODY_SIGNATURE_CHECK", JSON.stringify({
-        text_signature_valid: textIsValid,
-        buffer_signature_valid: bufferIsValid,
-        body_byte_length: rawBodyBuffer.length,
-        body_text_length: rawBodyText.length
-      }));
-      console.log("[IG-WEBHOOK-DEBUG] SECRET_SOURCE_CHECK", JSON.stringify({
-        instagram_secret_present: Boolean(instagramSecret),
-        instagram_secret_valid: instagramValid,
-        meta_secret_present: Boolean(metaSecret),
-        meta_secret_valid: metaValid
-      }));
-
-      const isValid = textIsValid;
-      if (!isValid) {
+      if (!textIsValid) {
         await db.addAuditLog({
           event_type: 'WEBHOOK_INVALID_SIGNATURE',
           actor_type: 'webhook',
           details: { platform: 'instagram', signatureHeader: signature },
         });
-        console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 401 }));
         return NextResponse.json({ error: 'Invalid HMAC signature' }, { status: 401 });
       }
-    } else {
-      console.log("[IG-WEBHOOK-DEBUG] SIGNATURE_CHECK", JSON.stringify({ signature_present: signaturePresent, signature_valid: true }));
     }
 
     let payload: any;
-    let parsingSucceeded = false;
     try {
       payload = JSON.parse(rawBodyText);
-      parsingSucceeded = true;
-    } catch (parseErr) {
-      parsingSucceeded = false;
+    } catch {
+      // payload parsed empty or invalid
     }
-    console.log("[IG-WEBHOOK-DEBUG] BODY_PARSED", JSON.stringify({ parsing_succeeded: parsingSucceeded }));
 
     const events = connector.parseWebhookPayload(payload);
-    console.log("[IG-WEBHOOK-DEBUG] INSTAGRAM_EVENT_DETECTED", JSON.stringify({ event_detected: events.length > 0, events_count: events.length }));
-
     const allConnections = await db.getConnections();
     const igConnections = allConnections.filter(c => c.platform === 'instagram' && c.is_active);
 
-    console.log("[IG-WEBHOOK-DEBUG] CONNECTION_LOOKUP", JSON.stringify({ active_instagram_connections_count: igConnections.length, matching_connection_found: igConnections.length > 0 }));
-
-    const DEPLOYMENT_COMMIT_SHA = 'a8dfb3c+fix_persistence';
+    const commitSha = process.env.VERCEL_GIT_COMMIT_SHA || 'production';
 
     console.info('[WEBHOOK_POST_DIAGNOSTIC]', JSON.stringify({
-      commit_sha: DEPLOYMENT_COMMIT_SHA,
+      commit_sha: commitSha,
       webhook_object_type: payload?.object || 'unknown',
       events_count: events.length,
       active_connections_count: igConnections.length,
@@ -177,7 +143,6 @@ export async function POST(req: NextRequest) {
 
     if (igConnections.length === 0) {
       console.warn('Rejected webhook: No active Instagram platform connection found.');
-      console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 403 }));
       return NextResponse.json({ error: 'Disconnected or unknown platform account' }, { status: 403 });
     }
 
@@ -222,7 +187,6 @@ export async function POST(req: NextRequest) {
       }
 
       const authoritativeTenantId = targetConn.tenant_id;
-      console.log("[IG-WEBHOOK-DEBUG] TENANT_RESOLUTION", JSON.stringify({ tenant_resolved: Boolean(authoritativeTenantId) }));
       let decryptedToken: string | null = null;
       let tokenDecryptionSucceeded = false;
 
@@ -343,10 +307,6 @@ export async function POST(req: NextRequest) {
 
         // Verify conversation row actually exists in Supabase DB before inserting message
         const convExistsInDb = conv ? await db.verifyConversationExists(conv.id, authoritativeTenantId) : false;
-        console.log("[IG-WEBHOOK-DEBUG] CONVERSATION_LOOKUP_OR_CREATE", JSON.stringify({
-          success: Boolean(conv && convExistsInDb),
-          error: (conv && convExistsInDb) ? null : (convCreateError || 'missing_conversation_row')
-        }));
 
         if (!conv || !convExistsInDb) {
           console.error('[CONVERSATION_PERSISTENCE_DIAGNOSTIC]', JSON.stringify({
@@ -364,7 +324,6 @@ export async function POST(req: NextRequest) {
         }
 
         // Add incoming customer message under authoritative tenant
-        console.log("[IG-WEBHOOK-DEBUG] MESSAGE_INSERT ATTEMPT", JSON.stringify({ attempted: true }));
         let insertedMsg: any = null;
         let msgInsertError: string | null = null;
         try {
@@ -380,12 +339,6 @@ export async function POST(req: NextRequest) {
         } catch (err: any) {
           msgInsertError = err?.message ? err.message.slice(0, 100) : 'addMessage_failed';
         }
-
-        console.log("[IG-WEBHOOK-DEBUG] MESSAGE_INSERT RESULT", JSON.stringify({
-          attempted: true,
-          success: Boolean(insertedMsg),
-          error: insertedMsg ? null : (msgInsertError || 'insert_returned_null')
-        }));
 
         console.info('[MESSAGE_ID_DIAGNOSTIC]', JSON.stringify({
           meta_mid_present: keySource === 'meta_mid',
@@ -613,11 +566,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 200 }));
     return NextResponse.json({ success: true, processedEvents: events.length }, { status: 200 });
   } catch (error: any) {
     console.error('Webhook processing error:', error);
-    console.log("[IG-WEBHOOK-DEBUG] HANDLER_COMPLETE", JSON.stringify({ status: 500 }));
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }
