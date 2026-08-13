@@ -586,6 +586,40 @@ export const db = {
     return data;
   },
 
+  upsertConversation: async (conv: Partial<Conversation>): Promise<Conversation | null> => {
+    const backend = getDbClient();
+    const payload = {
+      tenant_id: conv.tenant_id || DEFAULT_TENANT_ID,
+      platform: conv.platform || 'instagram',
+      channel_type: (conv as any).channel_type || 'dm',
+      external_id: conv.external_id || `ext_conv_${Date.now()}`,
+      customer_id: conv.customer_id || `cust_${Date.now()}`,
+      customer_name: conv.customer_name || 'Customer',
+      customer_language: conv.customer_language || 'ar',
+      status: conv.status || 'open',
+      human_takeover: conv.human_takeover ?? false,
+      auto_reply_enabled: conv.auto_reply_enabled ?? true,
+      last_message_at: conv.last_message_at || new Date().toISOString(),
+      created_at: conv.created_at || new Date().toISOString(),
+    };
+
+    try {
+      const { data, error } = await backend
+        .from('conversations')
+        .upsert(payload, { onConflict: 'tenant_id,platform,external_id' })
+        .select()
+        .single();
+
+      if (!error && data) {
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[CONVERSATION_UPSERT_WARN]', err.message);
+    }
+
+    return db.createConversation(payload as any);
+  },
+
   updateConversation: async (id: string, updates: Partial<Conversation>) => {
     const backend = getDbClient();
     const { data } = await backend
@@ -595,6 +629,41 @@ export const db = {
       .select()
       .single();
     return data;
+  },
+
+  upsertMessage: async (msg: Partial<Message>): Promise<Message | null> => {
+    const backend = getDbClient();
+    const payload = {
+      conversation_id: msg.conversation_id!,
+      tenant_id: msg.tenant_id || DEFAULT_TENANT_ID,
+      sender_type: msg.sender_type || 'customer',
+      external_message_id: msg.external_message_id,
+      content: msg.content || '',
+      sanitized_content: msg.sanitized_content || msg.content || '',
+      status: msg.status || 'sent',
+      created_at: msg.created_at || new Date().toISOString(),
+    };
+
+    try {
+      let query = backend.from('messages');
+      if (payload.external_message_id) {
+        const { data, error } = await query
+          .upsert(payload, { onConflict: 'external_message_id' })
+          .select()
+          .single();
+        if (!error && data) return data;
+      } else {
+        const { data, error } = await query
+          .insert(payload)
+          .select()
+          .single();
+        if (!error && data) return data;
+      }
+    } catch (err: any) {
+      console.warn('[MESSAGE_UPSERT_WARN]', err.message);
+    }
+
+    return db.addMessage(payload as any);
   },
 
   // Real Supabase Messages

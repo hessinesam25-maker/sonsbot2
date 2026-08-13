@@ -22,6 +22,9 @@ export default function UnifiedInboxPage() {
   const [aiSuggestedReply, setAiSuggestedReply] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
 
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
   const fetchConversations = async () => {
     setLoading(true);
     try {
@@ -38,6 +41,29 @@ export default function UnifiedInboxPage() {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncConversations = async () => {
+    setIsSyncing(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch('/api/instagram/sync-conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: selectedTenantId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSyncMessage(`Synced ${data.conversationsSynced ?? 0} conversations, ${data.messagesSynced ?? 0} messages.`);
+        await fetchConversations();
+      } else {
+        setSyncMessage(data.error || 'Failed to sync conversations.');
+      }
+    } catch (err: any) {
+      setSyncMessage(err.message || 'Error syncing conversations.');
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -109,6 +135,28 @@ export default function UnifiedInboxPage() {
         title={t('inbox.title', { restaurant: restaurantName })} 
         subtitle={t('inbox.subtitle')} 
       />
+
+      {/* Sync Control Bar */}
+      <div className="glass-card" style={{ marginBottom: '1rem', padding: '0.85rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+          {conversations.length} {direction === 'rtl' ? 'محادثات مأخوذة من إنستجرام' : 'Instagram Conversations'}
+        </div>
+        <button
+          className="btn btn-primary"
+          style={{ fontSize: '0.82rem' }}
+          disabled={isSyncing}
+          onClick={handleSyncConversations}
+        >
+          <RefreshCw size={15} className={isSyncing ? 'spin-anim' : ''} />
+          {isSyncing ? (direction === 'rtl' ? 'جاري المزامنة...' : 'Syncing...') : (direction === 'rtl' ? 'تزامن الرسائل' : 'Sync Conversations')}
+        </button>
+      </div>
+
+      {syncMessage && (
+        <div className="glass-card" style={{ marginBottom: '1rem', padding: '0.75rem 1rem', fontSize: '0.85rem', color: 'var(--accent-amber)' }}>
+          {syncMessage}
+        </div>
+      )}
 
       <div className="inbox-layout">
         {/* Left Column: Thread List */}

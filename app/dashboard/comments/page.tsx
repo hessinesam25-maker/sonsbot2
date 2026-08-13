@@ -249,9 +249,23 @@ export default function CommentsInboxPage() {
                   <span className={`badge badge-${comment.classification === 'spam' ? 'review' : 'resolved'}`} style={{ fontSize: '0.7rem' }}>
                     {t(`comments.classifications.${comment.classification}`) || comment.classification}
                   </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {new Date(comment.created_at).toLocaleString()}
+                  </span>
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {comment.media_id && (
+                    <a 
+                      href={comment.media_id.startsWith('http') ? comment.media_id : `https://www.instagram.com/p/DbtEzcOuehK/`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
+                    >
+                      {direction === 'rtl' ? 'عرض المنشور الأصلي' : 'View Source Post'}
+                    </a>
+                  )}
                   <button 
                     className={`btn ${comment.is_hidden ? 'btn-primary' : 'btn-secondary'}`} 
                     style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
