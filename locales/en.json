@@ -262,5 +262,17 @@
     "successMessage": "AI settings successfully updated for {restaurant}!",
     "errorMessage": "Failed to save AI settings. Please try again.",
     "loadErrorMessage": "Failed to load AI settings. Default settings displayed."
+  },
+  "instagramState": {
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "usernameUnavailable": "Instagram username unavailable",
+    "connectFirstNotice": "Connect Instagram first to enable automatic replies.",
+    "connectionStatus": "Instagram Connection Status",
+    "userId": "Instagram User ID",
+    "lastUpdated": "Last Connection Update",
+    "notConnectedDesc": "No active Instagram account connected for this restaurant.",
+    "operationalState": "Operational State",
+    "unavailableUntilConnected": "Unavailable until Instagram is connected"
   }
 }

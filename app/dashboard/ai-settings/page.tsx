@@ -33,6 +33,11 @@ export default function AISettingsPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [igState, setIgState] = useState<import('@/lib/db/types').InstagramConnectionState>({
+    connected: false,
+    status: 'disconnected',
+    hasPlaceholderUsername: false,
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -40,6 +45,9 @@ export default function AISettingsPage() {
       setLoading(true);
       setErrorMessage(null);
       try {
+        const connState = await db.getInstagramConnectionState(selectedTenantId);
+        if (isMounted) setIgState(connState);
+
         const res = await fetch(`/api/ai-settings?tenantId=${encodeURIComponent(selectedTenantId)}`);
         if (res.ok) {
           const data = await res.json();
@@ -283,6 +291,13 @@ export default function AISettingsPage() {
           <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1.25rem' }}>
             {t('aiSettings.channelsTitle')}
           </h3>
+
+          {!igState.connected && (
+            <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid var(--accent-rose)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-rose)', marginBottom: '1.25rem', fontSize: '0.82rem' }}>
+              <AlertCircle size={16} style={{ display: 'inline', marginInlineEnd: '0.4rem', verticalAlign: '-3px' }} />
+              {t('instagramState.connectFirstNotice')}
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

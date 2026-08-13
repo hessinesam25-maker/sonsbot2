@@ -2,14 +2,21 @@
 
 import React, { useState, useEffect } from 'react';
 import { TopHeader } from '@/components/TopHeader';
-import { Send, MessageSquare, Shield, Save, CheckCircle2 } from 'lucide-react';
+import { Send, MessageSquare, Shield, Save, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { AutomationRules } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
 
 export default function RulesPage() {
   const { selectedTenantId, tenant } = useAuth();
+  const { t, direction } = useLanguage();
   const [activeTab, setActiveTab] = useState<'dm' | 'comments'>('dm');
+  const [igState, setIgState] = useState<import('@/lib/db/types').InstagramConnectionState>({
+    connected: false,
+    status: 'disconnected',
+    hasPlaceholderUsername: false,
+  });
   const [rules, setRules] = useState<AutomationRules>({
     id: 'rules_001',
     tenant_id: selectedTenantId,
@@ -29,6 +36,9 @@ export default function RulesPage() {
 
   useEffect(() => {
     async function loadRules() {
+      const state = await db.getInstagramConnectionState(selectedTenantId);
+      setIgState(state);
+
       const data = await db.getAutomationRules(selectedTenantId);
       if (data) {
         setRules(data);
@@ -51,11 +61,17 @@ export default function RulesPage() {
   };
 
   return (
-    <div>
+    <div dir={direction}>
       <TopHeader 
         title={`Automation Settings — ${tenant?.name || 'Restaurant'}`} 
         subtitle="Manage Instagram Direct Message Fixed Auto-Reply & Public Comment Moderation Rules" 
       />
+
+      {!igState.connected && (
+        <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--accent-rose)', padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-rose)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.88rem' }}>
+          <AlertTriangle size={18} /> {t('instagramState.connectFirstNotice')}
+        </div>
+      )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         {/* Navigation Tabs */}
@@ -104,8 +120,12 @@ export default function RulesPage() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: rules.auto_reply_factual_questions ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
-                {rules.auto_reply_factual_questions ? 'DM Auto-Reply Active' : 'DM Auto-Reply Paused'}
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: !igState.connected ? 'var(--accent-rose)' : rules.auto_reply_factual_questions ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>
+                {!igState.connected
+                  ? t('instagramState.unavailableUntilConnected')
+                  : rules.auto_reply_factual_questions
+                  ? 'DM Auto-Reply Active'
+                  : 'DM Auto-Reply Paused'}
               </span>
               <label className="toggle-switch">
                 <input 

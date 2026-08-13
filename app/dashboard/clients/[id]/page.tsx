@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { TopHeader } from '@/components/TopHeader';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useAuth } from '@/lib/auth/AuthContext';
-import { db } from '@/lib/db/store';
+import { db, getNormalizedInstagramState } from '@/lib/db/store';
 import { Tenant, PlatformConnection } from '@/lib/db/types';
 import { 
   Building2, ArrowLeft, CheckCircle2, Circle, 
@@ -136,7 +136,8 @@ export default function RestaurantDetailsPage() {
     );
   }
 
-  const igConnected = connections.some(c => c.platform === 'instagram' && c.is_active);
+  const igState = getNormalizedInstagramState(connections);
+  const igConnected = igState.connected;
 
   const onboardingSteps = [
     { title: t('clients.step1Details'), status: true, icon: Building2, actionHref: undefined },

@@ -262,5 +262,17 @@
     "successMessage": "تم تحديث إعدادات الذكاء الاصطناعي بنجاح لمطعم {restaurant}!",
     "errorMessage": "فشل حفظ إعدادات الذكاء الاصطناعي. يرجى المحاولة مرة أخرى.",
     "loadErrorMessage": "فشل تحميل إعدادات الذكاء الاصطناعي. تم عرض الإعدادات الافتراضية."
+  },
+  "instagramState": {
+    "connected": "متصل",
+    "disconnected": "غير متصل",
+    "usernameUnavailable": "اسم حساب Instagram غير متاح",
+    "connectFirstNotice": "يجب ربط حساب Instagram أولاً لتفعيل الرد التلقائي.",
+    "connectionStatus": "حالة ربط إنستغرام",
+    "userId": "معرف حساب إنستغرام",
+    "lastUpdated": "آخر تحديث للربط",
+    "notConnectedDesc": "لا يوجد حساب إنستغرام مرتبط بهذا المطعم حالياً.",
+    "operationalState": "الحالة التشغيلية",
+    "unavailableUntilConnected": "غير متاح حتى يتم ربط إنستغرام"
   }
 }

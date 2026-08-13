@@ -1,12 +1,54 @@
 import { 
   Tenant, User, PlatformConnection, KnowledgeBase, MenuItem, 
-  Conversation, Message, Comment, AutomationRules, AuditLog, FAQ, PlatformAdmin, AISettings
+  Conversation, Message, Comment, AutomationRules, AuditLog, FAQ, PlatformAdmin, AISettings,
+  InstagramConnectionState
 } from './types';
 import { supabaseFrontend, getBackendSupabaseClient } from './client';
 
 export const DEFAULT_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 const aiSettingsMemoryStore = new Map<string, AISettings>();
+
+export function getNormalizedInstagramState(connections: PlatformConnection[]): InstagramConnectionState {
+  const igConnections = connections.filter(c => c.platform === 'instagram' && c.is_active);
+
+  if (igConnections.length === 0) {
+    return {
+      connected: false,
+      status: 'disconnected',
+      hasPlaceholderUsername: false,
+    };
+  }
+
+  // Sort by updated_at or created_at descending to select current connection
+  const activeConn = [...igConnections].sort((a, b) => {
+    const timeA = new Date(a.updated_at || a.created_at).getTime();
+    const timeB = new Date(b.updated_at || b.created_at).getTime();
+    return timeB - timeA;
+  })[0];
+
+  const rawName = activeConn.account_name ? activeConn.account_name.trim() : '';
+  const isPlaceholder = !rawName || rawName === 'Instagram Professional Account' || rawName === 'Connected';
+
+  let username: string | undefined = undefined;
+  let formattedUsername: string | undefined = undefined;
+
+  if (!isPlaceholder) {
+    username = rawName.replace(/^@+/, '');
+    formattedUsername = `@${username}`;
+  }
+
+  return {
+    connected: true,
+    connectionId: activeConn.id,
+    username: username,
+    formattedUsername: formattedUsername,
+    instagramUserId: activeConn.account_id,
+    status: 'connected',
+    updatedAt: activeConn.updated_at || activeConn.created_at,
+    hasPlaceholderUsername: isPlaceholder,
+  };
+}
 
 export const db = {
   // Platform Admin & Tenants Fetch
@@ -131,6 +173,11 @@ export const db = {
       return [];
     }
     return data || [];
+  },
+
+  getInstagramConnectionState: async (tenantId: string = DEFAULT_TENANT_ID): Promise<InstagramConnectionState> => {
+    const conns = await db.getConnections(tenantId);
+    return getNormalizedInstagramState(conns);
   },
 
   updateConnection: async (id: string, updates: Partial<PlatformConnection>) => {
