@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, ShieldCheck, Globe, Building2, Share2 } from 'lucide-react';
+import { MapPin, ShieldCheck, Globe, Building2, Share2, UserCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
-import { Tenant, PlatformConnection } from '@/lib/db/types';
+import { PlatformConnection } from '@/lib/db/types';
 
 interface TopHeaderProps {
   title: string;
@@ -13,20 +13,10 @@ interface TopHeaderProps {
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
-  const { tenant, selectedTenantId, switchTenant, isPlatformAdmin } = useAuth();
+  const { tenant, selectedTenantId, allowedTenants, switchTenant, isPlatformAdmin, role } = useAuth();
   const { language, setLanguage, direction, t } = useLanguage();
-  const [allTenants, setAllTenants] = useState<Tenant[]>([]);
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
   const [isIgConnected, setIsIgConnected] = useState<boolean>(false);
-
-  useEffect(() => {
-    let isMounted = true;
-    db.getAllTenants().then(list => {
-      if (isMounted) setAllTenants(list);
-    }).catch(console.error);
-
-    return () => { isMounted = false; };
-  }, [selectedTenantId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -50,7 +40,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
       </div>
 
       <div className="header-actions" style={{ gap: '0.75rem' }}>
-        {/* Active Restaurant Selector Dropdown */}
+        {/* Active Restaurant Display or Switcher */}
         <div 
           style={{ 
             display: 'flex', 
@@ -66,7 +56,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
           }}
         >
           {tenant?.logo_url ? (
-            <img src={tenant.logo_url} alt={tenant.name} style={{ width: '20px', height: '20px', borderRadius: '4px', objectFit: 'cover' }} />
+            <img src={tenant.logo_url} alt={tenant.name || ''} style={{ width: '20px', height: '20px', borderRadius: '4px', objectFit: 'cover' }} />
           ) : (
             <Building2 size={18} color="var(--accent-amber)" />
           )}
@@ -75,27 +65,34 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
             <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               {t('common.activeContext')}
             </span>
-            <select
-              value={selectedTenantId}
-              onChange={(e) => switchTenant(e.target.value)}
-              style={{
-                background: 'transparent',
-                color: '#fff',
-                border: 'none',
-                fontWeight: 700,
-                fontSize: '0.88rem',
-                cursor: 'pointer',
-                outline: 'none',
-                paddingRight: direction === 'rtl' ? '0' : '0.5rem',
-                paddingLeft: direction === 'rtl' ? '0.5rem' : '0',
-              }}
-            >
-              {allTenants.map(t => (
-                <option key={t.id} value={t.id} style={{ background: '#18181b', color: '#fff' }}>
-                  {t.name} ({t.city})
-                </option>
-              ))}
-            </select>
+            
+            {isPlatformAdmin && allowedTenants.length > 1 ? (
+              <select
+                value={selectedTenantId}
+                onChange={(e) => switchTenant(e.target.value)}
+                style={{
+                  background: 'transparent',
+                  color: '#fff',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  paddingRight: direction === 'rtl' ? '0' : '0.5rem',
+                  paddingLeft: direction === 'rtl' ? '0.5rem' : '0',
+                }}
+              >
+                {allowedTenants.map(t => (
+                  <option key={t.id} value={t.id} style={{ background: '#18181b', color: '#fff' }}>
+                    {t.name} ({t.city})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#fff' }}>
+                {tenant?.name || 'Restaurant Client'} ({tenant?.city || 'Ghent'})
+              </span>
+            )}
           </div>
         </div>
 
@@ -153,12 +150,18 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
           </button>
         </div>
 
-        {isPlatformAdmin && (
+        {/* Role & Admin Badges */}
+        {isPlatformAdmin ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(245, 158, 11, 0.2)', color: 'var(--accent-amber)', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius-full)', fontSize: '0.8rem', fontWeight: 700 }}>
             <ShieldCheck size={14} />
             <span>{t('common.platformAdmin')}</span>
           </div>
-        )}
+        ) : role ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius-full)', fontSize: '0.8rem', fontWeight: 700, textTransform: 'capitalize' }}>
+            <UserCheck size={14} />
+            <span>{role}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );

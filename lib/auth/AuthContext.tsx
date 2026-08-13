@@ -3,20 +3,21 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Tenant, PlatformAdmin } from '@/lib/db/types';
 import { supabaseFrontend } from '@/lib/db/client';
-import { db } from '@/lib/db/store';
 
 export interface AuthContextType {
   user: User | null;
   adminProfile: PlatformAdmin | null;
   tenant: Tenant | null;
-  role: 'admin' | null;
+  role: 'owner' | 'manager' | 'support_agent' | 'admin' | null;
   isPlatformAdmin: boolean;
   selectedTenantId: string;
+  allowedTenants: Tenant[];
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   switchTenant: (tenantId: string) => Promise<void>;
+  refreshAuthContext: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -25,27 +26,24 @@ const AuthContext = createContext<AuthContextType>({
   tenant: null,
   role: null,
   isPlatformAdmin: false,
-  selectedTenantId: '11111111-1111-1111-1111-111111111111',
+  selectedTenantId: '',
+  allowedTenants: [],
   isAuthenticated: false,
   isLoading: true,
   login: async () => ({ success: false }),
   logout: async () => {},
   switchTenant: async () => {},
+  refreshAuthContext: async () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [adminProfile, setAdminProfile] = useState<PlatformAdmin | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
-  const [role, setRole] = useState<'admin' | null>(null);
+  const [role, setRole] = useState<'owner' | 'manager' | 'support_agent' | 'admin' | null>(null);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState<boolean>(false);
-  const [selectedTenantId, setSelectedTenantId] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('sonsbot_selected_tenant_id');
-      if (saved) return saved;
-    }
-    return '11111111-1111-1111-1111-111111111111';
-  });
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
+  const [allowedTenants, setAllowedTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const clearState = () => {
@@ -54,90 +52,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setTenant(null);
     setRole(null);
     setIsPlatformAdmin(false);
+    setSelectedTenantId('');
+    setAllowedTenants([]);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('sonsbot_selected_tenant_id');
+    }
   };
 
-  const verifyPlatformAdmin = async (userId: string, targetTenantId?: string) => {
+  const fetchAuthContext = async () => {
+    setIsLoading(true);
     try {
-      if (!userId) {
-        clearState();
-        return false;
-      }
+      const res = await fetch('/api/auth/me', {
+        method: 'GET',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
 
-      const activeTenantId = targetTenantId || selectedTenantId;
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated) {
+          if (data.isPlatformAdmin) {
+            setIsPlatformAdmin(true);
+            setRole('admin');
+            setAdminProfile(data.user);
+            setUser(data.user);
+            setAllowedTenants(data.allowedTenants || []);
 
-      // Query platform_admins strictly by auth_user_id = user.id
-      const { data: adminData, error } = await supabaseFrontend
-        .from('platform_admins')
-        .select('*')
-        .eq('auth_user_id', userId)
-        .single();
-
-      if (adminData && !error) {
-        setAdminProfile(adminData);
-        setIsPlatformAdmin(true);
-        setRole('admin');
-        setUser({
-          id: adminData.id,
-          tenant_id: activeTenantId,
-          email: adminData.email,
-          name: adminData.name,
-          role: 'owner',
-          created_at: adminData.created_at,
-        });
-
-        const activeTenant = await db.getTenant(activeTenantId);
-        if (activeTenant) {
-          setTenant(activeTenant);
-          if (activeTenant.id !== selectedTenantId) {
-            setSelectedTenantId(activeTenant.id);
+            let activeId = '';
             if (typeof window !== 'undefined') {
-              localStorage.setItem('sonsbot_selected_tenant_id', activeTenant.id);
+              const saved = localStorage.getItem('sonsbot_selected_tenant_id');
+              if (saved && (data.allowedTenants || []).some((t: Tenant) => t.id === saved)) {
+                activeId = saved;
+              }
+            }
+
+            if (!activeId && data.allowedTenants && data.allowedTenants.length > 0) {
+              activeId = data.allowedTenants[0].id;
+            }
+
+            setSelectedTenantId(activeId);
+            if (typeof window !== 'undefined' && activeId) {
+              localStorage.setItem('sonsbot_selected_tenant_id', activeId);
+            }
+
+            const activeTenantObj = (data.allowedTenants || []).find((t: Tenant) => t.id === activeId) || null;
+            setTenant(activeTenantObj);
+          } else {
+            // Normal Tenant User: FORCED to server-assigned tenantId
+            setIsPlatformAdmin(false);
+            setAdminProfile(null);
+            setRole(data.role);
+            setUser(data.user);
+
+            const serverTenantId = data.tenantId;
+            setSelectedTenantId(serverTenantId);
+            setAllowedTenants(data.allowedTenants || []);
+            setTenant(data.tenant || null);
+
+            // Cleanly overwrite any stale cross-tenant localStorage value
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('sonsbot_selected_tenant_id', serverTenantId);
             }
           }
+          return;
         }
-        return true;
-      } else {
-        // Authenticated in Supabase Auth but NOT listed in public.platform_admins -> REJECT ACCESS
-        console.warn(`User ${userId} is not registered in public.platform_admins.auth_user_id.`);
-        await supabaseFrontend.auth.signOut();
-        clearState();
-        return false;
       }
-    } catch (err) {
-      console.error('Error verifying platform admin authorization:', err);
       clearState();
-      return false;
+    } catch (err) {
+      console.error('Failed to load server auth context:', err);
+      clearState();
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
     let isMounted = true;
 
-    const initSession = async () => {
-      try {
-        const { data: { user: activeUser } } = await supabaseFrontend.auth.getUser();
-        if (activeUser && isMounted) {
-          await verifyPlatformAdmin(activeUser.id);
-        } else if (isMounted) {
+    fetchAuthContext();
+
+    const { data: { subscription } } = supabaseFrontend.auth.onAuthStateChange(async (event) => {
+      if (isMounted) {
+        if (event === 'SIGNED_OUT') {
           clearState();
+          setIsLoading(false);
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          await fetchAuthContext();
         }
-      } catch (err) {
-        console.error('Session initialization error:', err);
-        if (isMounted) clearState();
-      } finally {
-        if (isMounted) setIsLoading(false);
       }
-    };
-
-    initSession();
-
-    const { data: { subscription } } = supabaseFrontend.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await verifyPlatformAdmin(session.user.id);
-      } else {
-        clearState();
-      }
-      if (isMounted) setIsLoading(false);
     });
 
     return () => {
@@ -153,7 +154,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: 'Email and password are required.' };
       }
 
-      // Real Supabase Authentication
       const { data: authData, error: authError } = await supabaseFrontend.auth.signInWithPassword({
         email,
         password,
@@ -164,12 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: authError?.message || 'Invalid email or password.' };
       }
 
-      // Server-side database verification: auth_user_id must match auth.users.id
-      const isAuthorized = await verifyPlatformAdmin(authData.user.id);
-      if (!isAuthorized) {
-        return { success: false, error: 'Access Denied: You do not have platform administrator access.' };
-      }
-
+      await fetchAuthContext();
       return { success: true };
     } catch (err: any) {
       clearState();
@@ -184,14 +179,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Unauthorized tenant switch attempt blocked');
       return;
     }
+
+    const target = allowedTenants.find(t => t.id === tenantId);
+    if (!target) {
+      console.warn('Target tenant not in authorized allowedTenants list');
+      return;
+    }
+
     setSelectedTenantId(tenantId);
+    setTenant(target);
     if (typeof window !== 'undefined') {
       localStorage.setItem('sonsbot_selected_tenant_id', tenantId);
-    }
-    const newTenant = await db.getTenant(tenantId);
-    setTenant(newTenant);
-    if (user) {
-      setUser({ ...user, tenant_id: tenantId });
     }
   };
 
@@ -214,11 +212,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         isPlatformAdmin,
         selectedTenantId,
-        isAuthenticated: Boolean(user && isPlatformAdmin),
+        allowedTenants,
+        isAuthenticated: Boolean(user),
         isLoading,
         login,
         logout,
         switchTenant,
+        refreshAuthContext: fetchAuthContext,
       }}
     >
       {children}

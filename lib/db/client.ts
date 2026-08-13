@@ -5,7 +5,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://ofxxrgtzlxk
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9meHhyZ3R6bHhreHJzZ2xpYnFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0MTY5MzYsImV4cCI6MjEwMDk5MjkzNn0.kVD_knCypKiT6p4jMIdA1vkegtmRS5XPH6axG6-asqw';
 
 /**
- * Frontend Client - Uses @supabase/ssr Browser Client
+ * Frontend Client - Uses @supabase/ssr Browser Client (Singleton instance in browser context)
  */
 export const supabaseFrontend = createBrowserSupabaseClient();
 
@@ -44,10 +44,22 @@ function getJwtRole(keyVal: string | undefined | null): string | null {
   }
 }
 
+let cachedBackendClient: ReturnType<typeof createClient> | null = null;
+
 /**
- * Backend Client - Uses Service Role Key / Secret Key strictly on server-side / API routes
+ * Backend Client - Uses Service Role Key / Secret Key strictly on server-side / API routes.
+ * On browser, delegates to `supabaseFrontend` to avoid creating multiple GoTrueClient instances
+ * or throwing fallback warnings.
  */
 export function getBackendSupabaseClient() {
+  if (typeof window !== 'undefined') {
+    return supabaseFrontend as any;
+  }
+
+  if (cachedBackendClient) {
+    return cachedBackendClient;
+  }
+
   const envSonsbotSecret = process.env.SONSBOT_SUPABASE_SECRET;
   const envSecretKey = process.env.SUPABASE_SECRET_KEY;
   const envServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -92,8 +104,12 @@ export function getBackendSupabaseClient() {
     console.warn('[SUPABASE-WARN] Backend client operating with anon role key! RLS-protected tables (e.g. platform_connections) will return 0 rows. Configure SONSBOT_SUPABASE_SECRET or SUPABASE_SERVICE_ROLE_KEY in Hostinger environment.');
   }
 
-  return createClient(supabaseUrl, selectedKey.trim());
+  cachedBackendClient = createClient(supabaseUrl, selectedKey.trim(), {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  return cachedBackendClient;
 }
-
-
-
