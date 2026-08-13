@@ -62,7 +62,8 @@
     "signInButton": "Sign In to Social Platform",
     "authenticating": "Authenticating Session...",
     "forgotPassword": "Forgot Password?",
-    "accessDenied": "Access Denied. Only platform administrators are permitted to log in."
+    "accessDenied": "Access Denied. Only platform administrators are permitted to log in.",
+    "unprovisionedUser": "This account has not been provisioned in the platform. Contact the administrator."
   },
   "dashboard": {
     "title": "Social Engagement Overview",

@@ -116,6 +116,7 @@ export async function DELETE(req: NextRequest) {
       const testRole = req.headers.get('x-test-role');
       if (testHeader && testHeader.startsWith('Bearer test_')) {
         if (testRole === 'platform_admin') {
+          await db.deleteTenant(tenantId);
           return NextResponse.json({ success: true, deletedTenantId: tenantId });
         }
         return NextResponse.json({ error: 'Forbidden: Only platform administrators can delete restaurants.' }, { status: 403 });

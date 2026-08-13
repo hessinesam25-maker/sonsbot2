@@ -8,6 +8,7 @@ import { supabaseFrontend, getBackendSupabaseClient } from './client';
 export const DEFAULT_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 const aiSettingsMemoryStore = new Map<string, AISettings>();
+const tenantMemoryStore = new Map<string, Tenant>();
 
 function getDbClient() {
   return typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
@@ -62,7 +63,9 @@ export const db = {
       .from('tenants')
       .select('*')
       .order('name', { ascending: true });
-    return data || [];
+    const list = data || [];
+    const memoryList = Array.from(tenantMemoryStore.values()).filter(mt => !list.some((d: any) => d.id === mt.id));
+    return [...list, ...memoryList].sort((a, b) => a.name.localeCompare(b.name));
   },
 
   getTenant: async (tenantId: string = DEFAULT_TENANT_ID): Promise<Tenant | null> => {
@@ -74,6 +77,9 @@ export const db = {
       .single();
 
     if (error || !data) {
+      if (tenantMemoryStore.has(tenantId)) {
+        return tenantMemoryStore.get(tenantId)!;
+      }
       return {
         id: tenantId,
         name: tenantId === DEFAULT_TENANT_ID ? 'Café De Gentse Draak' : 'Restaurant Client',
@@ -125,16 +131,20 @@ export const db = {
           .single();
 
         if (fallbackData) {
+          tenantMemoryStore.set(fallbackData.id, fallbackData);
           return { ...fallbackData, ...tenantData } as Tenant;
         }
       }
 
-      if (data) return data;
+      if (data) {
+        tenantMemoryStore.set(data.id, data);
+        return data;
+      }
     } catch (e) {
       console.warn('Backend create tenant fell back to memory store:', e);
     }
 
-    return {
+    const fallbackTenant: Tenant = {
       id: `tenant_${Date.now()}`,
       name: tenantData.name || 'New Restaurant',
       slug: tenantData.slug || 'new-restaurant',
@@ -150,6 +160,8 @@ export const db = {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+    tenantMemoryStore.set(fallbackTenant.id, fallbackTenant);
+    return fallbackTenant;
   },
 
   // Real Supabase Users Fetch
@@ -625,6 +637,7 @@ export const db = {
   },
 
   deleteTenant: async (tenantId: string): Promise<{ success: boolean; error?: string }> => {
+    tenantMemoryStore.delete(tenantId);
     if (typeof window !== 'undefined') {
       try {
         const res = await fetch(`/api/admin/tenants?tenantId=${encodeURIComponent(tenantId)}`, {

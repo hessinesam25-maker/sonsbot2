@@ -17,7 +17,7 @@ export interface AuthContextType {
   login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   switchTenant: (tenantId: string) => Promise<void>;
-  refreshAuthContext: () => Promise<void>;
+  refreshAuthContext: (preferredTenantId?: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -33,7 +33,7 @@ const AuthContext = createContext<AuthContextType>({
   login: async () => ({ success: false }),
   logout: async () => {},
   switchTenant: async () => {},
-  refreshAuthContext: async () => {},
+  refreshAuthContext: async () => false,
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -45,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedTenantId, setSelectedTenantId] = useState<string>('');
   const [allowedTenants, setAllowedTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const fetchSeqRef = React.useRef<number>(0);
 
   const clearState = () => {
     setUser(null);
@@ -59,7 +60,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const fetchAuthContext = async () => {
+  const fetchAuthContext = async (preferredTenantId?: string): Promise<boolean> => {
+    const seq = ++fetchSeqRef.current;
     setIsLoading(true);
     try {
       const res = await fetch('/api/auth/me', {
@@ -69,32 +71,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (res.ok) {
         const data = await res.json();
+        if (seq !== fetchSeqRef.current) return false;
+
         if (data.authenticated) {
           if (data.isPlatformAdmin) {
             setIsPlatformAdmin(true);
             setRole('admin');
             setAdminProfile(data.user);
             setUser(data.user);
-            setAllowedTenants(data.allowedTenants || []);
+            const tenantsList: Tenant[] = data.allowedTenants || [];
+            setAllowedTenants(tenantsList);
 
             let activeId = '';
-            if (typeof window !== 'undefined') {
+            if (preferredTenantId && tenantsList.some((t: Tenant) => t.id === preferredTenantId)) {
+              activeId = preferredTenantId;
+            } else if (selectedTenantId && tenantsList.some((t: Tenant) => t.id === selectedTenantId)) {
+              activeId = selectedTenantId;
+            } else if (typeof window !== 'undefined') {
               const saved = localStorage.getItem('sonsbot_selected_tenant_id');
-              if (saved && (data.allowedTenants || []).some((t: Tenant) => t.id === saved)) {
+              if (saved && tenantsList.some((t: Tenant) => t.id === saved)) {
                 activeId = saved;
               }
             }
 
-            if (!activeId && data.allowedTenants && data.allowedTenants.length > 0) {
-              activeId = data.allowedTenants[0].id;
+            if (!activeId && tenantsList.length > 0) {
+              activeId = tenantsList[0].id;
             }
 
             setSelectedTenantId(activeId);
-            if (typeof window !== 'undefined' && activeId) {
-              localStorage.setItem('sonsbot_selected_tenant_id', activeId);
+            if (typeof window !== 'undefined') {
+              if (activeId) {
+                localStorage.setItem('sonsbot_selected_tenant_id', activeId);
+              } else {
+                localStorage.removeItem('sonsbot_selected_tenant_id');
+              }
             }
 
-            const activeTenantObj = (data.allowedTenants || []).find((t: Tenant) => t.id === activeId) || null;
+            const activeTenantObj = tenantsList.find((t: Tenant) => t.id === activeId) || null;
             setTenant(activeTenantObj);
           } else {
             // Normal Tenant User: FORCED to server-assigned tenantId
@@ -113,15 +126,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               localStorage.setItem('sonsbot_selected_tenant_id', serverTenantId);
             }
           }
-          return;
+          return true;
         }
       }
-      clearState();
+
+      if (seq === fetchSeqRef.current) {
+        clearState();
+        await supabaseFrontend.auth.signOut();
+      }
+      return false;
     } catch (err) {
       console.error('Failed to load server auth context:', err);
-      clearState();
+      if (seq === fetchSeqRef.current) {
+        clearState();
+        await supabaseFrontend.auth.signOut();
+      }
+      return false;
     } finally {
-      setIsLoading(false);
+      if (seq === fetchSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -164,9 +188,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: authError?.message || 'Invalid email or password.' };
       }
 
-      await fetchAuthContext();
+      const authSuccess = await fetchAuthContext();
+      if (!authSuccess) {
+        await supabaseFrontend.auth.signOut();
+        clearState();
+
+        const lang = typeof window !== 'undefined' ? localStorage.getItem('platform_lang') : 'ar';
+        const unprovisionedMsg = lang === 'en'
+          ? 'This account has not been provisioned in the platform. Contact the administrator.'
+          : 'هذا الحساب غير مضاف إلى المنصة. تواصل مع مدير النظام.';
+
+        return {
+          success: false,
+          error: unprovisionedMsg,
+        };
+      }
+
       return { success: true };
     } catch (err: any) {
+      await supabaseFrontend.auth.signOut();
       clearState();
       return { success: false, error: err.message || 'Login failed.' };
     } finally {

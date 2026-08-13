@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/db/supabase-ssr';
 import { getBackendSupabaseClient } from '@/lib/db/client';
+import { db } from '@/lib/db/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,10 +31,7 @@ export async function GET(req: NextRequest) {
         if (testRole === 'platform_admin') {
           let tenantsList: any[] = [];
           try {
-            const { data: tenants } = await backend
-              .from('tenants')
-              .select('id, name, city, country, default_locale, is_active')
-              .order('name');
+            const tenants = await db.getAllTenants();
             if (tenants && tenants.length > 0) tenantsList = tenants;
           } catch {}
 
@@ -89,10 +87,7 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
 
     if (adminCheck) {
-      const { data: allTenants } = await backend
-        .from('tenants')
-        .select('id, name, city, country, default_locale, is_active')
-        .order('name');
+      const allTenants = await db.getAllTenants();
 
       const tenantsList = (allTenants && allTenants.length > 0) ? allTenants : [MOCK_TEST_TENANT];
 
