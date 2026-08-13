@@ -133,6 +133,26 @@ export interface User {
   created_at: string;
 }
 
+export interface InstagramMedia {
+  id: string;
+  tenant_id: string;
+  platform_connection_id?: string;
+  instagram_media_id: string;
+  media_type: string;
+  media_product_type?: string;
+  caption?: string;
+  media_url?: string;
+  thumbnail_url?: string;
+  permalink?: string;
+  timestamp?: string;
+  username?: string;
+  comments_count: number;
+  like_count: number;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PlatformConnection {
   id: string;
   tenant_id: string;
@@ -144,6 +164,10 @@ export interface PlatformConnection {
   is_active: boolean;
   permissions: string[];
   last_synced_at?: string;
+  last_sync_status?: 'idle' | 'in_progress' | 'success' | 'failed';
+  last_sync_error?: string;
+  last_sync_media_count?: number;
+  last_sync_comments_count?: number;
   created_at: string;
   updated_at: string;
 }

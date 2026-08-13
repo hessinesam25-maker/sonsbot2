@@ -5,9 +5,11 @@ import { TopHeader } from '@/components/TopHeader';
 import { Image, Video, Calendar, Clock, Send, AlertTriangle, ShieldCheck, CheckCircle2, Sparkles, Upload } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { db } from '@/lib/db/store';
+import { PlatformConnection } from '@/lib/db/types';
 
 export default function ContentStudioPage() {
-  const { tenant } = useAuth();
+  const { selectedTenantId, tenant } = useAuth();
   const { t, direction } = useLanguage();
   const [contentType, setContentType] = useState<'image' | 'video' | 'carousel' | 'reel'>('image');
   const [caption, setCaption] = useState('');
@@ -15,6 +17,25 @@ export default function ContentStudioPage() {
   const [publishNow, setPublishNow] = useState(true);
   const [mediaFile, setMediaFile] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
+  const [syncedMediaCount, setSyncedMediaCount] = useState<number>(0);
+  const [igConnected, setIgConnected] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    async function loadSyncInfo() {
+      const mediaList = await db.getInstagramMedia(selectedTenantId);
+      setSyncedMediaCount(mediaList.length);
+      const connState = await db.getInstagramConnectionState(selectedTenantId);
+      setIgConnected(Boolean(connState?.connected));
+
+      const conns = await db.getConnections(selectedTenantId);
+      const activeIg = conns.find((c: PlatformConnection) => c.platform === 'instagram' && c.is_active);
+      if (activeIg?.last_synced_at) {
+        setLastSyncTime(activeIg.last_synced_at);
+      }
+    }
+    loadSyncInfo();
+  }, [selectedTenantId]);
 
   const metaCapabilities = {
     image: { supported: true, notice: 'Supported via Meta Graph API container endpoint (/me/media).' },
@@ -43,6 +64,21 @@ export default function ContentStudioPage() {
         title={t('content.title', { restaurant: restaurantName })} 
         subtitle={t('content.subtitle')} 
       />
+
+      {/* Instagram Sync Foundation Status Indicator */}
+      <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '0.85rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span className={`badge badge-${igConnected ? 'resolved' : 'review'}`} style={{ fontSize: '0.78rem' }}>
+            Instagram {igConnected ? t('instagramState.connected') : t('instagramState.disconnected')}
+          </span>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            {t('comments.lastSync')} {lastSyncTime ? new Date(lastSyncTime).toLocaleString() : t('comments.neverSynced')}
+          </span>
+        </div>
+        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--accent-amber)' }}>
+          {syncedMediaCount} {direction === 'rtl' ? 'عناصر وسائط متزامنة' : 'Synced Media Posts'}
+        </div>
+      </div>
 
       {statusMessage && (
         <div style={{ background: statusMessage.startsWith('Error') ? 'rgba(244, 63, 94, 0.2)' : 'rgba(16, 185, 129, 0.2)', border: `1px solid ${statusMessage.startsWith('Error') ? 'var(--accent-rose)' : 'var(--accent-emerald)'}`, padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-sm)', color: statusMessage.startsWith('Error') ? 'var(--accent-rose)' : 'var(--accent-emerald)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

@@ -418,5 +418,31 @@
     "notConnectedDesc": "No active Instagram account connected for this restaurant.",
     "operationalState": "Operational State",
     "unavailableUntilConnected": "Unavailable until Instagram is connected"
+  },
+  "comments": {
+    "title": "Instagram Comments & Moderation — {restaurant}",
+    "subtitle": "View Synced Media Comments & Webhook Events for {restaurant}",
+    "syncNow": "Sync Now",
+    "syncing": "Syncing...",
+    "connectInstagramFirst": "Connect Instagram first.",
+    "lastSync": "Last Sync:",
+    "neverSynced": "Never synced",
+    "syncSuccess": "Successfully synced {media} posts and {comments} comments.",
+    "syncFailed": "Sync failed: {error}",
+    "noComments": "No comments found for {restaurant}.",
+    "filterByClassification": "Filter by classification:",
+    "classifications": {
+      "all": "All",
+      "positive": "Positive",
+      "question": "Question",
+      "complaint": "Complaint",
+      "collaboration": "Collaboration",
+      "spam": "Spam"
+    },
+    "hide": "Hide",
+    "unhide": "Unhide",
+    "officialReply": "Official Reply",
+    "typeReplyPlaceholder": "Type reply...",
+    "postReply": "Post Reply"
   }
 }

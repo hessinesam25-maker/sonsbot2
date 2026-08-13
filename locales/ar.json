@@ -418,5 +418,31 @@
     "notConnectedDesc": "لا يوجد حساب إنستغرام مرتبط بهذا المطعم حالياً.",
     "operationalState": "الحالة التشغيلية",
     "unavailableUntilConnected": "غير متاح حتى يتم ربط إنستغرام"
+  },
+  "comments": {
+    "title": "تعليقات Instagram والإشراف — {restaurant}",
+    "subtitle": "عرض تعليقات المنشورات المتزامنة وأحداث الويب هوك لمطعم {restaurant}",
+    "syncNow": "تزامن الآن",
+    "syncing": "جاري المزامنة...",
+    "connectInstagramFirst": "اربط حساب Instagram أولاً.",
+    "lastSync": "آخر تزامن:",
+    "neverSynced": "لم يتم التزامن بعد",
+    "syncSuccess": "تم مزامنة {media} منشور و {comments} تعليق بنجاح.",
+    "syncFailed": "فشلت عملية المزامنة: {error}",
+    "noComments": "لا توجد تعليقات لمطعم {restaurant}.",
+    "filterByClassification": "التصفية حسب التصنيف:",
+    "classifications": {
+      "all": "الكل",
+      "positive": "إيجابي",
+      "question": "سؤال",
+      "complaint": "شكوى",
+      "collaboration": "تعاون",
+      "spam": "سبام"
+    },
+    "hide": "إخفاء",
+    "unhide": "إظهار",
+    "officialReply": "الرد الرسمي",
+    "typeReplyPlaceholder": "اكتب الرد...",
+    "postReply": "نشر الرد"
   }
 }
