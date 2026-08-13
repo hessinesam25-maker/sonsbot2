@@ -9,7 +9,7 @@ import { Building2, Save, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-re
 
 export default function NewRestaurantClientPage() {
   const router = useRouter();
-  const { isPlatformAdmin } = useAuth();
+  const { isPlatformAdmin, refreshAuthContext } = useAuth();
   const { t, direction } = useLanguage();
 
   const [formData, setFormData] = useState({
@@ -47,6 +47,12 @@ export default function NewRestaurantClientPage() {
       }
 
       setSuccess(true);
+      if (data.id) {
+        await refreshAuthContext(data.id);
+      } else {
+        await refreshAuthContext();
+      }
+
       setTimeout(() => {
         router.push(`/dashboard/clients/${data.id || ''}`);
       }, 1200);

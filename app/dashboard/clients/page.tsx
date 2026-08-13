@@ -67,19 +67,7 @@ export default function RestaurantClientsPage() {
         return;
       }
 
-      const targetId = deletingTenant.id;
       closeDeleteModal();
-
-      // If deleted tenant was currently selected, handle active tenant transition safely
-      if (selectedTenantId === targetId) {
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('sonsbot_selected_tenant_id');
-        }
-        const remaining = allowedTenants.filter(t => t.id !== targetId);
-        if (remaining.length > 0) {
-          await switchTenant(remaining[0].id);
-        }
-      }
 
       await refreshAuthContext();
       await fetchTenants();

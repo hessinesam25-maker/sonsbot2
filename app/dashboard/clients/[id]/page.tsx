@@ -270,7 +270,7 @@ export default function RestaurantDetailsPage() {
 
 function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
   const router = useRouter();
-  const { switchTenant } = useAuth();
+  const { refreshAuthContext } = useAuth();
   const { t, direction } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [confirmNameInput, setConfirmNameInput] = useState('');
@@ -299,13 +299,7 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
         return;
       }
 
-      const remainingTenants = await db.getAllTenants();
-      if (remainingTenants.length > 0) {
-        const nextTenant = remainingTenants.find(t => t.id !== tenant.id) || remainingTenants[0];
-        await switchTenant(nextTenant.id);
-      } else {
-        await switchTenant('11111111-1111-1111-1111-111111111111');
-      }
+      await refreshAuthContext();
 
       setShowModal(false);
       router.push('/dashboard/clients');

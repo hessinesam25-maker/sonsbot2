@@ -20,6 +20,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
 
   useEffect(() => {
     let isMounted = true;
+    setIsIgConnected(false);
+    setConnections([]);
+
     if (selectedTenantId) {
       db.getConnections(selectedTenantId).then(conns => {
         if (isMounted) {
@@ -27,7 +30,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
           const activeIg = conns.some(c => c.platform === 'instagram' && c.is_active);
           setIsIgConnected(activeIg);
         }
-      }).catch(console.error);
+      }).catch(err => {
+        if (isMounted) {
+          console.error(err);
+          setConnections([]);
+          setIsIgConnected(false);
+        }
+      });
     }
     return () => { isMounted = false; };
   }, [selectedTenantId]);
