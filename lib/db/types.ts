@@ -292,3 +292,15 @@ export interface AISettings {
   updated_at: string;
 }
 
+export interface InstagramConnectionState {
+  connected: boolean;
+  connectionId?: string;
+  username?: string;
+  formattedUsername?: string;
+  instagramUserId?: string;
+  status: 'connected' | 'disconnected';
+  updatedAt?: string;
+  hasPlaceholderUsername: boolean;
+}
+
+

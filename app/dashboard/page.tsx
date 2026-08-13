@@ -16,9 +16,12 @@ export default function OverviewDashboard() {
   const { t, direction } = useLanguage();
 
   const [loading, setLoading] = useState(true);
+  const [igState, setIgState] = useState<import('@/lib/db/types').InstagramConnectionState>({
+    connected: false,
+    status: 'disconnected',
+    hasPlaceholderUsername: false,
+  });
   const [data, setData] = useState({
-    isIgConnected: false,
-    igAccountName: '',
     openConversationsCount: 0,
     takeoverConversationsCount: 0,
     totalCommentsCount: 0,
@@ -31,8 +34,8 @@ export default function OverviewDashboard() {
     async function loadTenantDashboardData() {
       setLoading(true);
       try {
-        const conns = await db.getConnections(selectedTenantId);
-        const activeIg = conns.find(c => c.platform === 'instagram' && c.is_active);
+        const state = await db.getInstagramConnectionState(selectedTenantId);
+        setIgState(state);
 
         const conversations = await db.getConversations(selectedTenantId);
         const openConvs = conversations.filter(c => c.status === 'open' || c.status === 'needs_human_review');
@@ -43,8 +46,6 @@ export default function OverviewDashboard() {
         const rules = await db.getAutomationRules(selectedTenantId);
 
         setData({
-          isIgConnected: Boolean(activeIg),
-          igAccountName: activeIg?.account_name || '',
           openConversationsCount: openConvs.length,
           takeoverConversationsCount: takeoverConvs.length,
           totalCommentsCount: comments.length,
@@ -72,15 +73,19 @@ export default function OverviewDashboard() {
       {/* Operational Cards Grid */}
       <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
         {/* Instagram Connection Status */}
-        <div className="glass-card stat-card" style={{ border: `1px solid ${data.isIgConnected ? 'var(--accent-emerald)' : 'var(--accent-rose)'}` }}>
-          <div className="stat-icon" style={{ background: data.isIgConnected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(244, 63, 94, 0.15)', color: data.isIgConnected ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+        <div className="glass-card stat-card" style={{ border: `1px solid ${igState.connected ? 'var(--accent-emerald)' : 'var(--accent-rose)'}` }}>
+          <div className="stat-icon" style={{ background: igState.connected ? 'rgba(16, 185, 129, 0.15)' : 'rgba(244, 63, 94, 0.15)', color: igState.connected ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
             <Share2 size={26} />
           </div>
           <div>
             <div className="stat-val" style={{ fontSize: '1.15rem' }}>
-              {loading ? '...' : data.isIgConnected ? `@${data.igAccountName || 'Connected'}` : 'Disconnected'}
+              {loading
+                ? '...'
+                : igState.connected
+                ? igState.formattedUsername || t('instagramState.usernameUnavailable')
+                : t('instagramState.disconnected')}
             </div>
-            <div className="stat-lbl">Instagram Connection</div>
+            <div className="stat-lbl">{t('instagramState.connectionStatus')}</div>
           </div>
         </div>
 
@@ -134,10 +139,21 @@ export default function OverviewDashboard() {
           <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>DM Auto-Reply State:</span>
-              <span className={`badge ${data.isDmAutoReplyEnabled ? 'badge-open' : 'badge-review'}`}>
-                {data.isDmAutoReplyEnabled ? 'ENABLED' : 'PAUSED'}
+              <span className={`badge ${!igState.connected ? 'badge-review' : data.isDmAutoReplyEnabled ? 'badge-open' : 'badge-review'}`}>
+                {!igState.connected
+                  ? 'UNAVAILABLE'
+                  : data.isDmAutoReplyEnabled
+                  ? 'ENABLED'
+                  : 'PAUSED'}
               </span>
             </div>
+
+            {!igState.connected && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid var(--accent-rose)', padding: '0.65rem 0.85rem', borderRadius: '4px', color: 'var(--accent-rose)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+                <AlertTriangle size={14} style={{ display: 'inline', marginInlineEnd: '0.4rem', verticalAlign: '-2px' }} />
+                {t('instagramState.connectFirstNotice')}
+              </div>
+            )}
 
             <div style={{ fontSize: '0.85rem' }}>
               <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>

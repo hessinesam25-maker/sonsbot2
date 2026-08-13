@@ -4,14 +4,16 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TopHeader } from '@/components/TopHeader';
 import { useAuth } from '@/lib/auth/AuthContext';
-import { db } from '@/lib/db/store';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { db, getNormalizedInstagramState } from '@/lib/db/store';
 import { PlatformConnection } from '@/lib/db/types';
 import { 
   Share2, ShieldCheck, Lock, ExternalLink, AlertTriangle, CheckCircle2, XCircle, LogOut, RefreshCw 
 } from 'lucide-react';
 
 function IntegrationsContent() {
-  const { selectedTenantId, isPlatformAdmin } = useAuth();
+  const { selectedTenantId } = useAuth();
+  const { t } = useLanguage();
   const searchParams = useSearchParams();
   const [connections, setConnections] = useState<PlatformConnection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,24 +38,14 @@ function IntegrationsContent() {
     loadConnections();
   }, [selectedTenantId]);
 
-  const igConnection = connections.find(c => c.platform === 'instagram');
-  const isConnected = Boolean(igConnection && igConnection.is_active);
+  const igState = getNormalizedInstagramState(connections);
+  const isConnected = igState.connected;
 
   const getStatusBadge = () => {
-    if (!igConnection || !igConnection.is_active) {
-      return <span className="badge badge-review">Not connected</span>;
+    if (!isConnected) {
+      return <span className="badge badge-review">{t('instagramState.disconnected')}</span>;
     }
-    if (igConnection.token_expires_at) {
-      const expires = new Date(igConnection.token_expires_at);
-      const daysRemaining = (expires.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-      if (daysRemaining <= 0) {
-        return <span className="badge badge-closed" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>Reconnect required</span>;
-      }
-      if (daysRemaining <= 7) {
-        return <span className="badge badge-review" style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)' }}>Token expiring</span>;
-      }
-    }
-    return <span className="badge badge-open" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-emerald)' }}>Connected</span>;
+    return <span className="badge badge-open" style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--accent-emerald)' }}>{t('instagramState.connected')}</span>;
   };
 
   const handleConnect = async () => {
@@ -77,9 +69,10 @@ function IntegrationsContent() {
   };
 
   const handleDisconnect = async () => {
-    if (!igConnection) return;
+    if (!isConnected) return;
+    const accountDisplay = igState.formattedUsername || t('instagramState.usernameUnavailable');
     const confirmed = window.confirm(
-      `Are you sure you want to disconnect Instagram account @${igConnection.account_name}? AI auto-replies will stop working for this account.`
+      `Are you sure you want to disconnect ${accountDisplay}? AI auto-replies will stop working for this account.`
     );
     if (!confirmed) return;
 
@@ -108,14 +101,14 @@ function IntegrationsContent() {
   return (
     <div>
       <TopHeader 
-        title="Platform Integrations Status" 
-        subtitle="Instagram API with Instagram Login & TikTok Business Messaging Readiness" 
+        title={t('integrations.title')} 
+        subtitle={t('integrations.subtitle')} 
       />
 
       {successMessage && (
         <div style={{ background: 'rgba(16, 185, 129, 0.12)', border: '1px solid var(--accent-emerald)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem', color: 'var(--accent-emerald)' }}>
           <CheckCircle2 size={18} />
-          <span><strong>Success:</strong> Instagram account successfully connected and credentials encrypted.</span>
+          <span><strong>Success:</strong> Instagram account successfully connected.</span>
         </div>
       )}
 
@@ -127,7 +120,7 @@ function IntegrationsContent() {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-        {/* Instagram API with Instagram Login Integration */}
+        {/* Instagram API Integration */}
         <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -135,8 +128,8 @@ function IntegrationsContent() {
                 <Share2 size={22} />
               </div>
               <div>
-                <h3 style={{ fontSize: '1.15rem' }}>Instagram Professional (Instagram Login)</h3>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Official Instagram Login & Graph API v20.0</div>
+                <h3 style={{ fontSize: '1.15rem' }}>{t('integrations.instagramTitle')}</h3>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Official Instagram Login & Graph API</div>
               </div>
             </div>
 
@@ -148,31 +141,29 @@ function IntegrationsContent() {
               <ShieldCheck size={16} /> Direct Instagram Login Flow
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-primary)', lineHeight: 1.45 }}>
-              Connect your <strong>Instagram Professional (Business or Creator)</strong> account directly with your Instagram login credentials.<br />
-              <span style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}>No Facebook account, Facebook Page, or Page selection required!</span>
+              Connect your <strong>Instagram Professional (Business or Creator)</strong> account directly with your Instagram credentials.<br />
+              <span style={{ color: 'var(--accent-emerald)', fontWeight: 600 }}>No Facebook Page selection required!</span>
             </p>
           </div>
 
-          {isConnected && igConnection ? (
+          {isConnected ? (
             <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.25rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.88rem' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Connected Account:</span>
-                <strong style={{ color: 'var(--text-primary)' }}>@{igConnection.account_name}</strong>
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {igState.formattedUsername || t('instagramState.usernameUnavailable')}
+                </strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.88rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Instagram User ID:</span>
-                <code style={{ fontSize: '0.8rem' }}>{igConnection.account_id}</code>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.88rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Token Encryption:</span>
-                <span style={{ color: 'var(--accent-emerald)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 600 }}>
-                  <Lock size={12} /> AES-256-GCM Encrypted
-                </span>
-              </div>
-              {igConnection.token_expires_at && (
+              {igState.instagramUserId && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.88rem' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{t('instagramState.userId')}:</span>
+                  <code style={{ fontSize: '0.8rem' }}>{igState.instagramUserId}</code>
+                </div>
+              )}
+              {igState.updatedAt && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Token Expiry:</span>
-                  <span>{new Date(igConnection.token_expires_at).toLocaleDateString()}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>{t('instagramState.lastUpdated')}:</span>
+                  <span>{new Date(igState.updatedAt).toLocaleDateString()}</span>
                 </div>
               )}
             </div>
@@ -180,15 +171,10 @@ function IntegrationsContent() {
             <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.25rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.88rem' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
-                <strong style={{ color: 'var(--accent-amber)' }}>Not Connected</strong>
+                <strong style={{ color: 'var(--accent-rose)' }}>{t('instagramState.disconnected')}</strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.88rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>Account Requirement:</span>
-                <span>Professional (Business / Creator)</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>OAuth Flow:</span>
-                <span>Instagram API with Instagram Login</span>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                {t('instagramState.notConnectedDesc')}
               </div>
             </div>
           )}
@@ -200,7 +186,7 @@ function IntegrationsContent() {
               className="btn btn-primary" 
               style={{ flex: 1, justifyContent: 'center' }}
             >
-              <Share2 size={14} /> {connecting ? 'Connecting...' : isConnected ? 'Reconnect Instagram' : 'Connect Instagram'}
+              <Share2 size={14} /> {connecting ? t('common.loading') : isConnected ? 'Reconnect Instagram' : 'Connect Instagram'}
             </button>
 
             {isConnected && (
@@ -210,7 +196,7 @@ function IntegrationsContent() {
                 className="btn btn-secondary" 
                 style={{ justifyContent: 'center', borderColor: '#ef4444', color: '#ef4444' }}
               >
-                <LogOut size={14} /> {disconnecting ? 'Disconnecting...' : 'Disconnect'}
+                <LogOut size={14} /> {disconnecting ? t('common.loading') : 'Disconnect'}
               </button>
             )}
           </div>
