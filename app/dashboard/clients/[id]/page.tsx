@@ -109,8 +109,6 @@ export default function RestaurantDetailsPage() {
     }
   };
 
-
-
   const handleSwitchToThisTenant = async () => {
     if (tenantId) {
       await switchTenant(tenantId);
@@ -127,9 +125,9 @@ export default function RestaurantDetailsPage() {
       <div dir={direction}>
         <TopHeader title={t('clients.clientDetails')} subtitle={t('common.error')} />
         <div className="glass-card" style={{ padding: '2rem', textAlign: 'center' }}>
-          <h3>Restaurant Tenant Not Found</h3>
+          <h3>{t('clients.notFound')}</h3>
           <button className="btn btn-secondary" style={{ marginTop: '1rem' }} onClick={() => router.push('/dashboard/clients')}>
-            <ArrowLeft size={16} /> {t('common.back')}
+            <ArrowLeft size={16} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {t('common.back')}
           </button>
         </div>
       </div>
@@ -157,7 +155,7 @@ export default function RestaurantDetailsPage() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <button className="btn btn-secondary" onClick={() => router.push('/dashboard/clients')}>
-          <ArrowLeft size={16} /> {t('common.back')}
+          <ArrowLeft size={16} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {t('common.back')}
         </button>
 
         <button className="btn btn-primary" onClick={handleSwitchToThisTenant}>
@@ -168,7 +166,7 @@ export default function RestaurantDetailsPage() {
       {/* Restaurant Overview Card */}
       <div className="glass-card" style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
-          <div style={{ width: '56px', height: '56px', borderRadius: '14px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1.5rem' }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '14px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1.5rem', flexShrink: 0 }}>
             {tenant.logo_url ? <img src={tenant.logo_url} alt={tenant.name} style={{ width: '100%', height: '100%', borderRadius: '14px', objectFit: 'cover' }} /> : tenant.name.charAt(0)}
           </div>
           <div>
@@ -192,12 +190,12 @@ export default function RestaurantDetailsPage() {
 
           <div>
             <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>{t('clients.formEmail')}</span>
-            <strong style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Mail size={14} /> {tenant.contact_email || '—'}</strong>
+            <strong className="ltr-text" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Mail size={14} /> {tenant.contact_email || '—'}</strong>
           </div>
 
           <div>
             <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.75rem' }}>{t('clients.formPhone')}</span>
-            <strong style={{ direction: 'ltr', display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Phone size={14} /> {tenant.phone || '—'}</strong>
+            <strong className="ltr-text" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><Phone size={14} /> {tenant.phone || '—'}</strong>
           </div>
         </div>
       </div>
@@ -220,7 +218,9 @@ export default function RestaurantDetailsPage() {
                   borderRadius: 'var(--radius-sm)',
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'center'
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.5rem'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
@@ -250,7 +250,7 @@ export default function RestaurantDetailsPage() {
                       style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
                       onClick={() => router.push(step.actionHref!)}
                     >
-                      <ExternalLink size={14} /> Configure
+                      <ExternalLink size={14} /> {t('common.configure')}
                     </button>
                   ) : (
                     <span className="badge badge-open" style={{ fontSize: '0.75rem' }}>{t('common.verified')}</span>
@@ -270,7 +270,8 @@ export default function RestaurantDetailsPage() {
 
 function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
   const router = useRouter();
-  const { selectedTenantId, switchTenant } = useAuth();
+  const { switchTenant } = useAuth();
+  const { t, direction } = useLanguage();
   const [showModal, setShowModal] = useState(false);
   const [confirmNameInput, setConfirmNameInput] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -284,7 +285,6 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
     setDeleteError(null);
 
     try {
-      // Audit log prior to deletion
       await db.addAuditLog({
         tenant_id: tenant.id,
         event_type: 'tenant.deleted',
@@ -294,12 +294,11 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
 
       const res = await db.deleteTenant(tenant.id);
       if (!res.success) {
-        setDeleteError(res.error || 'Failed to delete restaurant client.');
+        setDeleteError(res.error || t('common.error'));
         setIsDeleting(false);
         return;
       }
 
-      // Fetch remaining tenants to switch context safely if deleted active tenant
       const remainingTenants = await db.getAllTenants();
       if (remainingTenants.length > 0) {
         const nextTenant = remainingTenants.find(t => t.id !== tenant.id) || remainingTenants[0];
@@ -311,7 +310,7 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
       setShowModal(false);
       router.push('/dashboard/clients');
     } catch (err: any) {
-      setDeleteError(err.message || 'An unexpected error occurred during tenant deletion.');
+      setDeleteError(err.message || t('common.error'));
       setIsDeleting(false);
     }
   };
@@ -319,10 +318,10 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
   return (
     <div className="glass-card" style={{ border: '1px solid var(--accent-rose)', background: 'rgba(244, 63, 94, 0.05)' }}>
       <h3 style={{ fontSize: '1.15rem', color: 'var(--accent-rose)', marginBottom: '0.4rem' }}>
-        Danger Zone: Delete Restaurant Store
+        {t('clients.dangerZoneTitle')}
       </h3>
       <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.45 }}>
-        Permanently delete <strong>{tenant.name}</strong> (ID: {tenant.id}) and all associated platform connections, conversations, knowledge base data, menu items, and automation rules. This action cannot be undone.
+        {t('clients.dangerZoneDesc', { name: tenant.name, id: tenant.id })}
       </p>
 
       <button 
@@ -334,7 +333,7 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
           setShowModal(true);
         }}
       >
-        Delete Restaurant Store
+        {t('clients.deleteButton')}
       </button>
 
       {/* Confirmation Modal */}
@@ -350,18 +349,19 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
             zIndex: 9999, 
             padding: '1rem' 
           }}
+          dir={direction}
         >
           <div className="glass-card" style={{ maxWidth: '480px', width: '100%', border: '1px solid var(--accent-rose)', background: '#18181b', padding: '1.5rem' }}>
             <h3 style={{ fontSize: '1.25rem', color: 'var(--accent-rose)', marginBottom: '0.75rem' }}>
-              Confirm Permanent Deletion
+              {t('clients.confirmDeleteTitle')}
             </h3>
 
             <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
-              You are about to delete <strong>{tenant.name}</strong> (ID: <code style={{ fontSize: '0.78rem', color: 'var(--accent-amber)' }}>{tenant.id}</code>).
+              {t('clients.confirmDeleteNotice', { name: tenant.name, id: tenant.id })}
             </p>
 
             <div style={{ background: 'rgba(244, 63, 94, 0.1)', border: '1px solid var(--accent-rose)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', color: '#fff', marginBottom: '1rem' }}>
-              To confirm deletion, please type the restaurant name exactly:
+              {t('clients.typeToConfirm')}
               <strong style={{ display: 'block', color: 'var(--accent-amber)', fontSize: '0.95rem', marginTop: '0.25rem' }}>{tenant.name}</strong>
             </div>
 
@@ -374,7 +374,7 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
             <input 
               type="text" 
               className="form-input" 
-              placeholder={`Type "${tenant.name}"`}
+              placeholder={t('clients.typePlaceholder', { name: tenant.name })}
               value={confirmNameInput}
               onChange={(e) => setConfirmNameInput(e.target.value)}
               style={{ width: '100%', marginBottom: '1.25rem', fontSize: '0.9rem' }}
@@ -386,7 +386,7 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
                 onClick={() => setShowModal(false)}
                 disabled={isDeleting}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button 
                 className="btn" 
@@ -398,7 +398,7 @@ function DeleteRestaurantDangerZone({ tenant }: { tenant: Tenant }) {
                 disabled={!nameMatches || isDeleting}
                 onClick={handleDelete}
               >
-                {isDeleting ? 'Deleting...' : 'I understand, delete this store'}
+                {isDeleting ? t('clients.deleting') : t('clients.deleteConfirmButton')}
               </button>
             </div>
           </div>

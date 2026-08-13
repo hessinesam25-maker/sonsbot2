@@ -4,33 +4,28 @@ import React, { useState } from 'react';
 import { TopHeader } from '@/components/TopHeader';
 import { Image, Video, Calendar, Clock, Send, AlertTriangle, ShieldCheck, CheckCircle2, Sparkles, Upload } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export default function ContentStudioPage() {
   const { tenant } = useAuth();
-  const [contentType, setContentType] = useState<'image' | 'video' | 'carousel' | 'reel' | 'story'>('image');
+  const { t, direction } = useLanguage();
+  const [contentType, setContentType] = useState<'image' | 'video' | 'carousel' | 'reel'>('image');
   const [caption, setCaption] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [publishNow, setPublishNow] = useState(true);
   const [mediaFile, setMediaFile] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
 
-  // Official Meta Graph API v19.0 Capability Flags
   const metaCapabilities = {
     image: { supported: true, notice: 'Supported via Meta Graph API container endpoint (/me/media).' },
     video: { supported: true, notice: 'Supported for posts up to 60s.' },
     carousel: { supported: true, notice: 'Supported up to 10 images/videos.' },
     reel: { supported: true, notice: 'Supported via IG Reel media containers.' },
-    story: { supported: false, notice: 'Not currently supported for automated scheduling via official Meta API for 3rd-party apps.' },
   };
 
   const handleCreatePost = (e: React.FormEvent) => {
     e.preventDefault();
     if (!caption) return;
-
-    if (!metaCapabilities[contentType].supported) {
-      setStatusMessage(`Error: ${contentType.toUpperCase()} publishing is currently unsupported by the official Meta Graph API.`);
-      return;
-    }
 
     setStatusMessage(`Post successfully ${publishNow ? 'published' : 'scheduled'} for ${tenant?.name || 'Restaurant'}!`);
     setTimeout(() => {
@@ -40,11 +35,13 @@ export default function ContentStudioPage() {
     }, 3000);
   };
 
+  const restaurantName = tenant?.name || '';
+
   return (
-    <div>
+    <div dir={direction}>
       <TopHeader 
-        title={`Content Studio — ${tenant?.name || 'Restaurant'}`} 
-        subtitle="Instagram Post, Reel & Story Creator with Official Meta Graph API Capability Checking" 
+        title={t('content.title', { restaurant: restaurantName })} 
+        subtitle={t('content.subtitle')} 
       />
 
       {statusMessage && (
@@ -54,52 +51,51 @@ export default function ContentStudioPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
         {/* Creator Form */}
         <div className="glass-card">
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Image size={22} color="var(--accent-amber)" /> Post Creator & Scheduler
+            <Image size={22} color="var(--accent-amber)" /> {t('content.postCreatorTitle')}
           </h3>
 
           <form onSubmit={handleCreatePost}>
             <div className="form-group">
-              <label className="form-label">Select Content Type</label>
+              <label className="form-label">{t('content.selectContentType')}</label>
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {(['image', 'video', 'carousel', 'reel', 'story'] as const).map((type) => {
-                  const cap = metaCapabilities[type];
+                {(['image', 'video', 'carousel', 'reel'] as const).map((type) => {
                   return (
                     <button
                       key={type}
                       type="button"
                       className={`btn ${contentType === type ? 'btn-primary' : 'btn-secondary'}`}
-                      style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem', textTransform: 'capitalize', opacity: cap.supported ? 1 : 0.6 }}
+                      style={{ fontSize: '0.8rem', padding: '0.4rem 0.75rem', textTransform: 'capitalize' }}
                       onClick={() => setContentType(type)}
                     >
-                      {type} {!cap.supported && '(Unsupported)'}
+                      {type}
                     </button>
                   );
                 })}
               </div>
-              <p style={{ fontSize: '0.75rem', color: metaCapabilities[contentType].supported ? 'var(--text-muted)' : 'var(--accent-rose)', marginTop: '0.35rem' }}>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
                 {metaCapabilities[contentType].notice}
               </p>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Media Asset Upload</label>
+              <label className="form-label">{t('content.mediaUploadTitle')}</label>
               <div style={{ border: '2px dashed var(--border-color)', borderRadius: 'var(--radius-sm)', padding: '1.5rem', textAlign: 'center', background: 'rgba(0,0,0,0.2)' }}>
                 <Upload size={24} style={{ margin: '0 auto 0.5rem auto', color: 'var(--text-muted)' }} />
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Drag & drop image/video or click to select media file</div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>Max file size: 100MB (JPG, PNG, MP4)</div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{t('content.dragDropMedia')}</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{t('content.maxFileSize')}</div>
               </div>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Caption & Hashtags</label>
+              <label className="form-label">{t('content.captionHashtags')}</label>
               <textarea 
                 className="form-textarea" 
                 rows={4} 
-                placeholder={`Write caption for ${tenant?.name || 'restaurant'}... #ghent #foodie`}
+                placeholder={t('content.captionPlaceholder', { restaurant: restaurantName })}
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 required
@@ -107,13 +103,13 @@ export default function ContentStudioPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Publishing Schedule</label>
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <label className="form-label">{t('content.publishingSchedule')}</label>
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
-                  <input type="radio" name="schedule" checked={publishNow} onChange={() => setPublishNow(true)} /> Publish Immediately
+                  <input type="radio" name="schedule" checked={publishNow} onChange={() => setPublishNow(true)} /> {t('content.publishNow')}
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
-                  <input type="radio" name="schedule" checked={!publishNow} onChange={() => setPublishNow(false)} /> Schedule for Later
+                  <input type="radio" name="schedule" checked={!publishNow} onChange={() => setPublishNow(false)} /> {t('content.scheduleLater')}
                 </label>
               </div>
 
@@ -128,7 +124,7 @@ export default function ContentStudioPage() {
             </div>
 
             <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '0.85rem', marginTop: '0.5rem' }}>
-              <Send size={16} /> {publishNow ? 'Publish Post to Instagram' : 'Schedule Post for Restaurant'}
+              <Send size={16} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {publishNow ? t('content.publishToIg') : t('content.scheduleForRestaurant')}
             </button>
           </form>
         </div>
@@ -136,23 +132,23 @@ export default function ContentStudioPage() {
         {/* Live Instagram Mobile Preview */}
         <div className="glass-card">
           <h3 style={{ fontSize: '1.2rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Sparkles size={20} color="var(--accent-cyan)" /> Live Instagram Feed Preview
+            <Sparkles size={20} color="var(--accent-cyan)" /> {t('content.livePreviewTitle')}
           </h3>
 
           <div style={{ width: '280px', margin: '0 auto', border: '2px solid var(--border-color)', borderRadius: '24px', padding: '12px', background: '#000', color: '#fff' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '10px' }}>
               <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.8rem' }}>
-                {(tenant?.name || 'R')[0]}
+                {(restaurantName || 'R')[0]}
               </div>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{tenant?.name || 'restaurant_official'}</div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700 }} className="ltr-text">{restaurantName || 'restaurant_official'}</div>
             </div>
 
             <div style={{ width: '100%', height: '220px', background: 'rgba(255,255,255,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Media Preview Box ({contentType.toUpperCase()})
+              {t('content.mediaPreviewBox', { type: contentType.toUpperCase() })}
             </div>
 
             <div style={{ marginTop: '10px', fontSize: '0.78rem', lineHeight: 1.4 }}>
-              <strong>{tenant?.name || 'restaurant_official'}</strong> {caption || 'Your Instagram caption preview will appear here...'}
+              <strong className="ltr-text">{restaurantName || 'restaurant_official'}</strong> {caption || t('content.captionPreviewFallback')}
             </div>
           </div>
         </div>
@@ -161,15 +157,14 @@ export default function ContentStudioPage() {
       {/* Instagram Analytics & Insights Foundation Card */}
       <div className="glass-card" style={{ marginTop: '1.5rem' }}>
         <h3 style={{ fontSize: '1.15rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Sparkles size={20} color="var(--accent-amber)" /> Instagram Profile & Content Insights (Foundation Only)
+          <Sparkles size={20} color="var(--accent-amber)" /> {t('content.insightsTitle')}
         </h3>
 
         <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid var(--accent-amber)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-sm)', fontSize: '0.88rem', color: '#fff', lineHeight: 1.5 }}>
           <strong style={{ color: 'var(--accent-amber)', display: 'block', marginBottom: '0.35rem' }}>
-            Meta API Permission Notice: instagram_business_manage_insights Required
+            {t('content.insightsNoticeTitle')}
           </strong>
-          Account reach, post engagement, impressions, and follower demographics require the <code>instagram_business_manage_insights</code> permission during Meta App Review.
-          Per project strategy, fake analytics metrics are strictly omitted. Once the Meta permission review is submitted and approved, live Graph API analytics endpoints will be linked directly to this section.
+          {t('content.insightsNoticeDesc')}
         </div>
       </div>
     </div>

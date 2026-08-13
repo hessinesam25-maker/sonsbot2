@@ -55,7 +55,6 @@ export default function AISettingsPage() {
             setSettings(data);
           }
         } else {
-          // Fallback to store direct getter if API endpoint unavailable or in offline test environment
           const fallbackData = await db.getAISettings(selectedTenantId);
           if (isMounted && fallbackData) {
             setSettings(fallbackData);
@@ -87,7 +86,7 @@ export default function AISettingsPage() {
     setSaving(true);
     setSavedSuccess(false);
     setErrorMessage(null);
-    const restaurantName = tenant?.name || 'Restaurant';
+    const restaurantName = tenant?.name || '';
 
     try {
       const res = await fetch('/api/ai-settings', {
@@ -106,7 +105,6 @@ export default function AISettingsPage() {
         if (res.status === 403) {
           throw new Error(errData.error || t('aiSettings.errorMessage'));
         }
-        // Fallback to store write if server route bypasses client fetch in local test
         const updated = await db.updateAISettings(
           { ...settings, tenant_id: selectedTenantId },
           selectedTenantId
@@ -123,7 +121,7 @@ export default function AISettingsPage() {
     }
   };
 
-  const restaurantName = tenant?.name || 'Restaurant';
+  const restaurantName = tenant?.name || '';
 
   if (loading) {
     return (
@@ -149,9 +147,9 @@ export default function AISettingsPage() {
         subtitle={t('aiSettings.headerSubtitle')} 
       />
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Bot size={22} />
           </div>
           <div>
@@ -182,7 +180,7 @@ export default function AISettingsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem', maxWidth: '900px' }}>
         {/* Section 1: Main AI Master Toggle & Language */}
         <div className="glass-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
             <div>
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Sparkles size={18} color="var(--accent-amber)" /> {t('aiSettings.masterSwitchTitle')}
@@ -300,7 +298,7 @@ export default function AISettingsPage() {
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <MessageSquare size={16} /> {t('aiSettings.replyDms')}
@@ -317,7 +315,7 @@ export default function AISettingsPage() {
               </label>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <MessageSquare size={16} /> {t('aiSettings.replyComments')}
@@ -334,7 +332,7 @@ export default function AISettingsPage() {
               </label>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <BookOpen size={16} /> {t('aiSettings.useKb')}

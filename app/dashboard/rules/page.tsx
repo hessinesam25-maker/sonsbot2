@@ -60,11 +60,13 @@ export default function RulesPage() {
     }
   };
 
+  const restaurantName = tenant?.name || '';
+
   return (
     <div dir={direction}>
       <TopHeader 
-        title={`Automation Settings — ${tenant?.name || 'Restaurant'}`} 
-        subtitle="Manage Instagram Direct Message Fixed Auto-Reply & Public Comment Moderation Rules" 
+        title={t('rules.title', { restaurant: restaurantName })} 
+        subtitle={t('rules.subtitle')} 
       />
 
       {!igState.connected && (
@@ -73,48 +75,48 @@ export default function RulesPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         {/* Navigation Tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(0,0,0,0.3)', padding: '0.3rem', borderRadius: 'var(--radius-sm)' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', background: 'rgba(0,0,0,0.3)', padding: '0.3rem', borderRadius: 'var(--radius-sm)', flexWrap: 'wrap' }}>
           <button 
             className={`btn ${activeTab === 'dm' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}
             onClick={() => setActiveTab('dm')}
           >
-            <Send size={15} /> Direct Message (DM) Automation
+            <Send size={15} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {t('rules.dmTab')}
           </button>
           <button 
             className={`btn ${activeTab === 'comments' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ fontSize: '0.85rem', padding: '0.45rem 1rem' }}
             onClick={() => setActiveTab('comments')}
           >
-            <MessageSquare size={15} /> Comments Automation
+            <MessageSquare size={15} /> {t('rules.commentsTab')}
           </button>
         </div>
 
         <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-          <Save size={16} /> {saving ? 'Saving...' : 'Save Automation Settings'}
+          <Save size={16} /> {saving ? t('rules.saving') : t('rules.saveSettings')}
         </button>
       </div>
 
       {savedSuccess && (
         <div style={{ background: 'rgba(16, 185, 129, 0.2)', border: '1px solid var(--accent-emerald)', padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-emerald)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <CheckCircle2 size={18} /> Automation settings updated for {tenant?.name || 'active restaurant'}!
+          <CheckCircle2 size={18} /> {t('rules.settingsUpdated', { restaurant: restaurantName })}
         </div>
       )}
 
       {/* Tab 1: Dedicated DM Automation Settings */}
       {activeTab === 'dm' && (
         <div className="glass-card" style={{ maxWidth: '800px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-              <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Send size={20} />
+              <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Send size={20} className={direction === 'rtl' ? 'rtl-flip' : ''} />
               </div>
               <div>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>Instagram DM Auto Reply</h3>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>{t('rules.dmAutoReplyTitle')}</h3>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Configured for: <strong>{tenant?.name || 'Restaurant Client'}</strong>
+                  {t('rules.configuredFor', { restaurant: restaurantName })}
                 </span>
               </div>
             </div>
@@ -124,8 +126,8 @@ export default function RulesPage() {
                 {!igState.connected
                   ? t('instagramState.unavailableUntilConnected')
                   : rules.auto_reply_factual_questions
-                  ? 'DM Auto-Reply Active'
-                  : 'DM Auto-Reply Paused'}
+                  ? t('rules.dmActive')
+                  : t('rules.dmPaused')}
               </span>
               <label className="toggle-switch">
                 <input 
@@ -139,23 +141,23 @@ export default function RulesPage() {
           </div>
 
           <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5, background: 'rgba(0,0,0,0.2)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)' }}>
-            Automatically reply to new Instagram direct messages with this message.
+            {t('rules.dmNotice')}
           </p>
 
           <div className="form-group">
             <label className="form-label" style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-              Default DM Reply Message
+              {t('rules.defaultDmLabel')}
             </label>
             <textarea 
               className="form-textarea" 
               rows={4}
-              placeholder="e.g. Bedankt voor je bericht! Welkom bij ons restaurant. Onze openingsuren zijn vandaag van 08:00 tot 18:00."
+              placeholder={t('rules.defaultDmPlaceholder')}
               value={rules.default_dm_reply || ''}
               onChange={(e) => setRules({ ...rules, default_dm_reply: e.target.value })}
               style={{ width: '100%', fontSize: '0.92rem', lineHeight: 1.5 }}
             />
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-              This response is sent immediately when a customer sends an Instagram Direct Message to this restaurant.
+              {t('rules.defaultDmHelp')}
             </p>
           </div>
         </div>
@@ -165,14 +167,14 @@ export default function RulesPage() {
       {activeTab === 'comments' && (
         <div className="glass-card" style={{ maxWidth: '800px' }}>
           <h3 style={{ fontSize: '1.15rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Shield size={20} color="var(--accent-emerald)" /> Post & Reel Comment Moderation Rules
+            <Shield size={20} color="var(--accent-emerald)" /> {t('rules.commentModerationTitle')}
           </h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>Auto-Reply to Positive Comments</div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Send appreciative replies to positive user comments on posts</div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{t('rules.autoReplyPositive')}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{t('rules.autoReplyPositiveDesc')}</div>
               </div>
               <label className="toggle-switch">
                 <input 
@@ -184,10 +186,10 @@ export default function RulesPage() {
               </label>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>Never Auto-Reply to Complaints</div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--accent-rose)' }}>Route negative feedback or complaints to human operator review</div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{t('rules.neverReplyComplaints')}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--accent-rose)' }}>{t('rules.neverReplyComplaintsDesc')}</div>
               </div>
               <label className="toggle-switch">
                 <input 
@@ -199,10 +201,10 @@ export default function RulesPage() {
               </label>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>Hide Spam Comments</div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Automatically flag or hide promotional spam on Instagram posts</div>
+                <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{t('rules.hideSpam')}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{t('rules.hideSpamDesc')}</div>
               </div>
               <label className="toggle-switch">
                 <input 
@@ -215,16 +217,16 @@ export default function RulesPage() {
             </div>
 
             <div className="form-group" style={{ marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
-              <label className="form-label">Maximum Automated Public Comment Replies / Hour</label>
+              <label className="form-label">{t('rules.maxRepliesPerHour')}</label>
               <input 
                 type="number" 
-                className="form-input" 
+                className="form-input ltr-text" 
                 value={rules.max_public_replies_per_hour}
                 onChange={(e) => setRules({ ...rules, max_public_replies_per_hour: parseInt(e.target.value) || 20 })}
                 style={{ maxWidth: '200px' }}
               />
               <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-                Rate limiting threshold to protect Instagram account standing.
+                {t('rules.maxRepliesHelp')}
               </p>
             </div>
           </div>

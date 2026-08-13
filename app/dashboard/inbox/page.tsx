@@ -8,9 +8,11 @@ import {
 import { Conversation, Message } from '@/lib/db/types';
 import { db } from '@/lib/db/store';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export default function UnifiedInboxPage() {
   const { selectedTenantId, tenant } = useAuth();
+  const { t, direction } = useLanguage();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -48,7 +50,6 @@ export default function UnifiedInboxPage() {
   useEffect(() => {
     fetchConversations();
   }, [selectedTenantId]);
-
 
   const handleSelectConv = (conv: Conversation) => {
     setSelectedConv(conv);
@@ -100,11 +101,13 @@ export default function UnifiedInboxPage() {
     return true;
   });
 
+  const restaurantName = tenant?.name || '';
+
   return (
-    <div>
+    <div dir={direction}>
       <TopHeader 
-        title={`Unified Customer Inbox — ${tenant?.name || 'Restaurant'}`} 
-        subtitle="Manage Instagram Direct Messages & Explicit Human Operator Handoffs" 
+        title={t('inbox.title', { restaurant: restaurantName })} 
+        subtitle={t('inbox.subtitle')} 
       />
 
       <div className="inbox-layout">
@@ -112,33 +115,33 @@ export default function UnifiedInboxPage() {
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={16} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-secondary)' }} />
+              <Search size={16} style={{ position: 'absolute', left: direction === 'rtl' ? 'auto' : '10px', right: direction === 'rtl' ? '10px' : 'auto', top: '10px', color: 'var(--text-secondary)' }} />
               <input 
                 type="text" 
-                placeholder="Search conversations..." 
+                placeholder={t('inbox.searchPlaceholder')} 
                 className="form-input" 
-                style={{ width: '100%', paddingLeft: '32px' }}
+                style={{ width: '100%', paddingLeft: direction === 'rtl' ? '0.9rem' : '32px', paddingRight: direction === 'rtl' ? '32px' : '0.9rem' }}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <button className="btn btn-secondary" style={{ padding: '0.5rem' }} onClick={fetchConversations} title="Refresh conversations">
+            <button className="btn btn-secondary" style={{ padding: '0.5rem', marginInlineStart: '0.5rem' }} onClick={fetchConversations} title={t('inbox.refresh')}>
               <RefreshCw size={14} />
             </button>
           </div>
 
           <div style={{ display: 'flex', gap: '0.35rem', background: 'rgba(0,0,0,0.3)', padding: '0.25rem', borderRadius: 'var(--radius-sm)' }}>
-            <button className={`btn ${filterStatus === 'all' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem' }} onClick={() => setFilterStatus('all')}>All</button>
-            <button className={`btn ${filterStatus === 'review' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem' }} onClick={() => setFilterStatus('review')}>Review</button>
-            <button className={`btn ${filterStatus === 'open' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem' }} onClick={() => setFilterStatus('open')}>Open</button>
+            <button className={`btn ${filterStatus === 'all' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem' }} onClick={() => setFilterStatus('all')}>{t('common.all')}</button>
+            <button className={`btn ${filterStatus === 'review' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem' }} onClick={() => setFilterStatus('review')}>{t('inbox.needsReview')}</button>
+            <button className={`btn ${filterStatus === 'open' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, fontSize: '0.75rem', padding: '0.35rem' }} onClick={() => setFilterStatus('open')}>{t('common.active')}</button>
           </div>
 
           <div className="thread-list">
             {loading ? (
-              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading conversations for {tenant?.name || 'store'}...</div>
+              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>{t('inbox.loadingConvs', { restaurant: restaurantName })}</div>
             ) : filteredConversations.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                No active conversations found for {tenant?.name || 'this restaurant'}.
+                {t('inbox.noConversations', { restaurant: restaurantName })}
               </div>
             ) : (
               filteredConversations.map((conv) => (
@@ -148,15 +151,15 @@ export default function UnifiedInboxPage() {
                   onClick={() => handleSelectConv(conv)}
                 >
                   <div className="thread-header">
-                    <span className="thread-name">{conv.customer_name}</span>
+                    <span className="thread-name ltr-text">{conv.customer_name}</span>
                     <span className={`lang-badge lang-${conv.customer_language}`}>{conv.customer_language.toUpperCase()}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className={`badge badge-${conv.status === 'needs_human_review' ? 'review' : conv.status}`}>
-                      {conv.status.replace('_', ' ')}
+                      {conv.status === 'needs_human_review' ? t('inbox.needsReview') : conv.status === 'resolved' ? t('inbox.resolved') : t('common.active')}
                     </span>
                     {conv.human_takeover && (
-                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-rose)', fontWeight: 700 }}>HUMAN TAKEOVER</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-rose)', fontWeight: 700 }}>{t('inbox.humanTakeoverBadge')}</span>
                     )}
                   </div>
                 </div>
@@ -171,20 +174,20 @@ export default function UnifiedInboxPage() {
             <>
               <div className="chat-header">
                 <div>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{selectedConv.customer_name}</h3>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }} className="ltr-text">{selectedConv.customer_name}</h3>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
-                    <span className="badge badge-open">Instagram DM</span>
+                    <span className="badge badge-open">{t('inbox.instagramDm')}</span>
                     <span className={`lang-badge lang-${selectedConv.customer_language}`}>
-                      Locale: {selectedConv.customer_language === 'nl' ? 'Dutch (BE)' : selectedConv.customer_language.toUpperCase()}
+                      {t('inbox.localeLabel', { locale: selectedConv.customer_language.toUpperCase() })}
                     </span>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255,255,255,0.04)', padding: '0.5rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>Automation Control</div>
+                  <div style={{ textAlign: direction === 'rtl' ? 'left' : 'right' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>{t('inbox.automationControl')}</div>
                     <div style={{ fontSize: '0.7rem', color: selectedConv.human_takeover ? 'var(--accent-rose)' : 'var(--accent-emerald)' }}>
-                      {selectedConv.human_takeover ? 'Human Operator Control Active' : 'Automatic DM Replies Active'}
+                      {selectedConv.human_takeover ? t('inbox.humanControlActive') : t('inbox.autoRepliesActive')}
                     </div>
                   </div>
                   <button 
@@ -192,27 +195,27 @@ export default function UnifiedInboxPage() {
                     style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
                     onClick={handleToggleTakeover}
                   >
-                    {selectedConv.human_takeover ? 'Resume Automatic Replies' : 'Take Over Conversation'}
+                    {selectedConv.human_takeover ? t('inbox.resumeAutoReplies') : t('inbox.takeOverConv')}
                   </button>
                 </div>
               </div>
 
               <div className="chat-messages">
                 {messages.length === 0 ? (
-                  <div style={{ color: 'var(--text-muted)', textAlign: 'center', paddingTop: '2rem' }}>No messages yet in this conversation</div>
+                  <div style={{ color: 'var(--text-muted)', textAlign: 'center', paddingTop: '2rem' }}>{t('inbox.noMessages')}</div>
                 ) : (
                   messages.map((msg) => {
                     const label = msg.sender_type === 'customer' 
                       ? selectedConv.customer_name 
                       : msg.sender_type === 'ai' 
-                        ? '🤖 Bot' 
-                        : '👤 Human Agent';
+                        ? t('inbox.botLabel')
+                        : t('inbox.humanAgentLabel');
 
                     return (
                       <div key={msg.id} className={`chat-bubble ${msg.sender_type}`}>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.2rem', display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ fontWeight: 600 }}>{label}</span>
-                          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                          <span style={{ fontWeight: 600 }} className={msg.sender_type === 'customer' ? 'ltr-text' : ''}>{label}</span>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }} className="ltr-text">
                             {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
@@ -227,7 +230,7 @@ export default function UnifiedInboxPage() {
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <input 
                     type="text" 
-                    placeholder={`Type response to ${selectedConv.customer_name}...`} 
+                    placeholder={t('inbox.typeResponse', { name: selectedConv.customer_name })} 
                     className="form-input" 
                     style={{ flex: 1 }}
                     value={replyInput}
@@ -235,14 +238,14 @@ export default function UnifiedInboxPage() {
                     onKeyDown={(e) => e.key === 'Enter' && handleSendReply()}
                   />
                   <button className="btn btn-primary" onClick={handleSendReply}>
-                    <Send size={16} /> Send Reply
+                    <Send size={16} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {t('inbox.send')}
                   </button>
                 </div>
               </div>
             </>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
-              Select a conversation from {tenant?.name || 'store'} to manage messages
+              {t('inbox.selectConvPrompt', { restaurant: restaurantName })}
             </div>
           )}
         </div>

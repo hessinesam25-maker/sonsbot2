@@ -8,10 +8,12 @@ import {
 } from 'lucide-react';
 import { Comment, CommentClassification } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
 
 export default function CommentsInboxPage() {
   const { selectedTenantId, tenant } = useAuth();
+  const { t, direction } = useLanguage();
   const [comments, setComments] = useState<Comment[]>([]);
 
   useEffect(() => {
@@ -21,7 +23,6 @@ export default function CommentsInboxPage() {
     }
     loadComments();
   }, [selectedTenantId]);
-
 
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
@@ -73,17 +74,19 @@ export default function CommentsInboxPage() {
     return true;
   });
 
+  const restaurantName = tenant?.name || '';
+
   return (
-    <div>
+    <div dir={direction}>
       <TopHeader 
-        title={`Instagram Post & Reel Comments — ${tenant?.name || 'Restaurant'}`} 
-        subtitle="Manage Public Comments, Classification & Moderation for Active Restaurant" 
+        title={t('comments.title', { restaurant: restaurantName })} 
+        subtitle={t('comments.subtitle')} 
       />
 
       {/* Filter Bar */}
       <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '0.85rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', overflowX: 'auto' }}>
-        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          <Filter size={16} /> Filter by Classification:
+        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
+          <Filter size={16} /> {t('comments.filterByClassification')}
         </span>
 
         {['all', 'positive', 'question', 'complaint', 'collaboration', 'spam'].map((cat) => (
@@ -93,7 +96,7 @@ export default function CommentsInboxPage() {
             style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem', textTransform: 'capitalize' }}
             onClick={() => setSelectedFilter(cat)}
           >
-            {cat}
+            {cat === 'all' ? t('common.all') : cat}
           </button>
         ))}
       </div>
@@ -103,14 +106,14 @@ export default function CommentsInboxPage() {
         {filteredComments.length === 0 ? (
           <div className="glass-card" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
             <MessageSquare size={32} style={{ margin: '0 auto 0.75rem auto', opacity: 0.5 }} />
-            <div>No Instagram comments recorded for {tenant?.name || 'this restaurant'}.</div>
+            <div>{t('comments.noComments', { restaurant: restaurantName })}</div>
           </div>
         ) : (
           filteredComments.map((comment) => (
             <div key={comment.id} className="glass-card" style={{ opacity: comment.is_hidden ? 0.6 : 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--accent-amber)' }}>@{comment.author_username}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--accent-amber)' }} className="ltr-text">@{comment.author_username}</div>
                   <span className="badge badge-open" style={{ fontSize: '0.7rem' }}>Instagram {comment.media_type}</span>
                   <span className={`badge badge-${comment.classification === 'spam' ? 'review' : 'resolved'}`} style={{ fontSize: '0.7rem' }}>
                     {comment.classification}
@@ -123,7 +126,7 @@ export default function CommentsInboxPage() {
                     style={{ fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
                     onClick={() => handleToggleHide(comment.id)}
                   >
-                    <EyeOff size={14} /> {comment.is_hidden ? 'Unhide Comment' : 'Hide Comment'}
+                    <EyeOff size={14} /> {comment.is_hidden ? t('comments.unhide') : t('comments.hide')}
                   </button>
                 </div>
               </div>
@@ -135,9 +138,9 @@ export default function CommentsInboxPage() {
 
               {/* Existing Public Reply */}
               {comment.auto_replied && comment.reply_content && (
-                <div style={{ marginLeft: '1.5rem', background: 'rgba(245, 158, 11, 0.1)', borderLeft: '3px solid var(--accent-amber)', padding: '0.65rem 1rem', borderRadius: '4px', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                <div style={{ marginInlineStart: '1.5rem', background: 'rgba(245, 158, 11, 0.1)', borderInlineStart: '3px solid var(--accent-amber)', padding: '0.65rem 1rem', borderRadius: '4px', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
                   <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-amber)', marginBottom: '0.2rem' }}>
-                    🤖 Official Public Reply:
+                    {t('comments.officialReply')}
                   </div>
                   <div>{comment.reply_content}</div>
                 </div>
@@ -148,14 +151,14 @@ export default function CommentsInboxPage() {
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                   <input 
                     type="text" 
-                    placeholder="Type public comment reply..." 
+                    placeholder={t('comments.typeReplyPlaceholder')} 
                     className="form-input" 
                     style={{ flex: 1, fontSize: '0.85rem' }}
                     value={replyInputs[comment.id] || ''}
                     onChange={(e) => setReplyInputs({ ...replyInputs, [comment.id]: e.target.value })}
                   />
                   <button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => handleManualReply(comment.id)}>
-                    <Send size={14} /> Post Public Reply
+                    <Send size={14} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {t('comments.postReply')}
                   </button>
                 </div>
               )}

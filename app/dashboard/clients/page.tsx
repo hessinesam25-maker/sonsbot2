@@ -54,7 +54,7 @@ export default function RestaurantClientsPage() {
         subtitle={t('clients.subtitle')} 
       />
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{t('clients.totalRegistered')}: {tenants.length}</div>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{t('clients.clickToSwitch')}</p>
@@ -91,12 +91,12 @@ export default function RestaurantClientsPage() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         {item.logo_url ? <img src={item.logo_url} alt={item.name} style={{ width: '100%', height: '100%', borderRadius: '10px', objectFit: 'cover' }} /> : <Building2 size={20} />}
                       </div>
                       <div>
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{item.name}</h3>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {item.id.slice(0, 8)}...</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: <code className="ltr-text">{item.id.slice(0, 8)}...</code></span>
                       </div>
                     </div>
 
@@ -112,7 +112,7 @@ export default function RestaurantClientsPage() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                       <Clock size={14} color="var(--accent-indigo)" />
-                      <span>Timezone: {item.timezone || 'Europe/Brussels'} (Locale: {(item.default_locale || 'ar').toUpperCase()})</span>
+                      <span>{t('clients.formTimezone')}: {item.timezone || 'Europe/Brussels'} ({t('clients.formLocale')}: {(item.default_locale || 'ar').toUpperCase()})</span>
                     </div>
                   </div>
                 </div>
@@ -123,7 +123,7 @@ export default function RestaurantClientsPage() {
                     style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem' }}
                     onClick={() => handleSelectClient(item.id)}
                   >
-                    {isSelected ? <CheckCircle2 size={14} /> : <ArrowRight size={14} />}
+                    {isSelected ? <CheckCircle2 size={14} /> : <ArrowRight size={14} className={direction === 'rtl' ? 'rtl-flip' : ''} />}
                     {isSelected ? t('common.activeContext') : t('common.switchContext')}
                   </button>
 
