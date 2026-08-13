@@ -269,3 +269,26 @@ export interface AuditLog {
   details: Record<string, any>;
   created_at: string;
 }
+
+export type AITone = 'friendly' | 'professional' | 'casual';
+export type AIReplyLength = 'very_short' | 'short' | 'normal';
+export type AIEmojiUsage = 'none' | 'low' | 'normal';
+export type AIFallbackBehavior = 'human_handoff' | 'fallback_message';
+
+export interface AISettings {
+  id: string;
+  tenant_id: string;
+  ai_enabled: boolean;
+  primary_language: string;
+  tone: AITone;
+  reply_length: AIReplyLength;
+  emoji_usage: AIEmojiUsage;
+  custom_instructions: string;
+  reply_to_dms: boolean;
+  reply_to_comments: boolean;
+  use_knowledge_base: boolean;
+  fallback_behavior: AIFallbackBehavior;
+  created_at: string;
+  updated_at: string;
+}
+

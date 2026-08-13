@@ -1,10 +1,12 @@
 import { 
   Tenant, User, PlatformConnection, KnowledgeBase, MenuItem, 
-  Conversation, Message, Comment, AutomationRules, AuditLog, FAQ, PlatformAdmin 
+  Conversation, Message, Comment, AutomationRules, AuditLog, FAQ, PlatformAdmin, AISettings
 } from './types';
 import { supabaseFrontend, getBackendSupabaseClient } from './client';
 
 export const DEFAULT_TENANT_ID = '11111111-1111-1111-1111-111111111111';
+
+const aiSettingsMemoryStore = new Map<string, AISettings>();
 
 export const db = {
   // Platform Admin & Tenants Fetch
@@ -302,6 +304,83 @@ export const db = {
       .select()
       .single();
     return data;
+  },
+
+  // Real Supabase AI Settings with graceful fallback
+  getAISettings: async (tenantId: string = DEFAULT_TENANT_ID): Promise<AISettings> => {
+    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    try {
+      const { data, error } = await client
+        .from('ai_settings')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+
+      if (!error && data) {
+        aiSettingsMemoryStore.set(tenantId, data);
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[AI_SETTINGS_LOOKUP_WARN]', err.message);
+    }
+
+    if (aiSettingsMemoryStore.has(tenantId)) {
+      return aiSettingsMemoryStore.get(tenantId)!;
+    }
+
+    return {
+      id: `ai_set_${tenantId.slice(0, 8)}`,
+      tenant_id: tenantId,
+      ai_enabled: false,
+      primary_language: 'nl-BE',
+      tone: 'friendly',
+      reply_length: 'short',
+      emoji_usage: 'low',
+      custom_instructions: '',
+      reply_to_dms: true,
+      reply_to_comments: true,
+      use_knowledge_base: true,
+      fallback_behavior: 'human_handoff',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  },
+
+  updateAISettings: async (updates: Partial<AISettings>, tenantId: string = DEFAULT_TENANT_ID): Promise<AISettings> => {
+    const backend = getBackendSupabaseClient();
+    const targetTenantId = updates.tenant_id || tenantId;
+    const existing = await db.getAISettings(targetTenantId);
+
+    const payload: AISettings = {
+      ...existing,
+      ...updates,
+      tenant_id: targetTenantId,
+      updated_at: new Date().toISOString(),
+    };
+
+    aiSettingsMemoryStore.set(targetTenantId, payload);
+
+    const dbPayload = { ...payload };
+    if (dbPayload.id && dbPayload.id.startsWith('ai_set_')) {
+      delete (dbPayload as any).id;
+    }
+
+    try {
+      const { data, error } = await backend
+        .from('ai_settings')
+        .upsert(dbPayload, { onConflict: 'tenant_id' })
+        .select()
+        .single();
+
+      if (!error && data) {
+        aiSettingsMemoryStore.set(targetTenantId, data);
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[AI_SETTINGS_UPDATE_WARN]', err.message);
+    }
+
+    return payload;
   },
 
   // Real Supabase Conversations
