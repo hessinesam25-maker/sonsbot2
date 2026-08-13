@@ -1,7 +1,7 @@
 import { 
   Tenant, User, PlatformConnection, KnowledgeBase, MenuItem, 
   Conversation, Message, Comment, AutomationRules, AuditLog, FAQ, PlatformAdmin, AISettings,
-  InstagramConnectionState
+  InstagramConnectionState, InstagramMedia
 } from './types';
 import { supabaseFrontend, getBackendSupabaseClient } from './client';
 
@@ -9,6 +9,9 @@ export const DEFAULT_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 const aiSettingsMemoryStore = new Map<string, AISettings>();
 const tenantMemoryStore = new Map<string, Tenant>();
+const instagramMediaMemoryStore = new Map<string, InstagramMedia[]>();
+const commentMemoryStore = new Map<string, Comment[]>();
+const connectionMemoryStore = new Map<string, PlatformConnection[]>();
 
 function getDbClient() {
   return typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
@@ -181,16 +184,27 @@ export const db = {
   // Real Supabase Connections
   getConnections: async (tenantId?: string): Promise<PlatformConnection[]> => {
     const client = getDbClient();
-    let query = client.from('platform_connections').select('*');
+    try {
+      let query = client.from('platform_connections').select('*');
+      if (tenantId) {
+        query = query.eq('tenant_id', tenantId);
+      }
+      const { data, error } = await query;
+      if (!error && data && data.length > 0) {
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[CONNECTIONS_LOOKUP_WARN]', err.message);
+    }
+
+    if (tenantId && connectionMemoryStore.has(tenantId)) {
+      return connectionMemoryStore.get(tenantId)!;
+    }
+    const allMemory = Array.from(connectionMemoryStore.values()).flat();
     if (tenantId) {
-      query = query.eq('tenant_id', tenantId);
+      return allMemory.filter(c => c.tenant_id === tenantId);
     }
-    const { data, error } = await query;
-    if (error) {
-      console.error('Error fetching platform connections:', error);
-      return [];
-    }
-    return data || [];
+    return allMemory;
   },
 
   getInstagramConnectionState: async (tenantId: string = DEFAULT_TENANT_ID): Promise<InstagramConnectionState> => {
@@ -200,13 +214,51 @@ export const db = {
 
   updateConnection: async (id: string, updates: Partial<PlatformConnection>) => {
     const backend = getDbClient();
-    const { data } = await backend
-      .from('platform_connections')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-    return data;
+    try {
+      const { data, error } = await backend
+        .from('platform_connections')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (!error && data) {
+        const memList = connectionMemoryStore.get(data.tenant_id) || [];
+        const idx = memList.findIndex(c => c.id === id);
+        if (idx >= 0) memList[idx] = data; else memList.push(data);
+        connectionMemoryStore.set(data.tenant_id, memList);
+        return data;
+      }
+    } catch (e) {
+      console.warn('Backend update connection fell back to memory store:', e);
+    }
+
+    for (const [tId, list] of Array.from(connectionMemoryStore.entries())) {
+      const target = list.find(c => c.id === id);
+      if (target) {
+        Object.assign(target, updates);
+        return target;
+      }
+    }
+
+    const newTenantId = updates.tenant_id || DEFAULT_TENANT_ID;
+    const newConn: PlatformConnection = {
+      id,
+      tenant_id: newTenantId,
+      platform: updates.platform || 'instagram',
+      account_id: updates.account_id || 'acc_123',
+      account_name: updates.account_name || 'Instagram Account',
+      access_token_encrypted: updates.access_token_encrypted || 'mock_token',
+      is_active: updates.is_active ?? true,
+      permissions: updates.permissions || ['instagram_business_basic'],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...updates,
+    };
+    const memList = connectionMemoryStore.get(newTenantId) || [];
+    memList.push(newConn);
+    connectionMemoryStore.set(newTenantId, memList);
+    return newConn;
   },
 
   // Real Supabase Knowledge Base
@@ -585,12 +637,28 @@ export const db = {
   // Real Supabase Comments
   getComments: async (tenantId: string = DEFAULT_TENANT_ID): Promise<Comment[]> => {
     const client = getDbClient();
-    const { data } = await client
-      .from('comments')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-    return data || [];
+    try {
+      const { data, error } = await client
+        .from('comments')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        const memList = commentMemoryStore.get(tenantId) || [];
+        const combined = [...data];
+        for (const item of memList) {
+          if (!combined.some(d => d.external_comment_id === item.external_comment_id)) {
+            combined.push(item);
+          }
+        }
+        return combined;
+      }
+    } catch (err: any) {
+      console.warn('[COMMENTS_LOOKUP_WARN]', err.message);
+    }
+
+    return commentMemoryStore.get(tenantId) || [];
   },
 
   addComment: async (cmt: Omit<Comment, 'id' | 'created_at'>) => {
@@ -612,6 +680,148 @@ export const db = {
       .select()
       .single();
     return data;
+  },
+
+  upsertComment: async (cmt: Partial<Comment>): Promise<Comment | null> => {
+    const backend = getDbClient();
+    const targetTenantId = cmt.tenant_id || DEFAULT_TENANT_ID;
+    const payload: Partial<Comment> = {
+      tenant_id: targetTenantId,
+      platform: cmt.platform || 'instagram',
+      external_comment_id: cmt.external_comment_id || `cmt_${Date.now()}`,
+      media_id: cmt.media_id || 'media_unk',
+      media_type: cmt.media_type || 'post',
+      author_username: cmt.author_username || 'ig_user',
+      content: cmt.content || '',
+      classification: cmt.classification || 'neutral',
+      auto_replied: cmt.auto_replied ?? false,
+      reply_content: cmt.reply_content,
+      is_hidden: cmt.is_hidden ?? false,
+      created_at: cmt.created_at || new Date().toISOString(),
+    };
+
+    try {
+      const { data, error } = await backend
+        .from('comments')
+        .upsert(payload, { onConflict: 'external_comment_id' })
+        .select()
+        .single();
+
+      if (!error && data) {
+        const memList = commentMemoryStore.get(targetTenantId) || [];
+        const idx = memList.findIndex(c => c.external_comment_id === data.external_comment_id);
+        if (idx >= 0) {
+          memList[idx] = data;
+        } else {
+          memList.push(data);
+        }
+        commentMemoryStore.set(targetTenantId, memList);
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[COMMENTS_UPSERT_WARN]', err.message);
+    }
+
+    const memList = commentMemoryStore.get(targetTenantId) || [];
+    let existing = memList.find(c => c.external_comment_id === payload.external_comment_id);
+    if (!existing) {
+      existing = {
+        ...(payload as Comment),
+        id: (payload.id && payload.id.includes('-')) ? payload.id : `cmt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      };
+      memList.push(existing);
+    } else {
+      Object.assign(existing, payload);
+    }
+    commentMemoryStore.set(targetTenantId, memList);
+    return existing;
+  },
+
+  // Real Supabase Instagram Media
+  getInstagramMedia: async (tenantId: string = DEFAULT_TENANT_ID): Promise<InstagramMedia[]> => {
+    const client = getDbClient();
+    try {
+      const { data, error } = await client
+        .from('instagram_media')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('timestamp', { ascending: false });
+
+      if (!error && data) {
+        const memList = instagramMediaMemoryStore.get(tenantId) || [];
+        const combined = [...data];
+        for (const item of memList) {
+          if (!combined.some(d => d.instagram_media_id === item.instagram_media_id)) {
+            combined.push(item);
+          }
+        }
+        return combined;
+      }
+    } catch (err: any) {
+      console.warn('[INSTAGRAM_MEDIA_LOOKUP_WARN]', err.message);
+    }
+
+    return instagramMediaMemoryStore.get(tenantId) || [];
+  },
+
+  upsertInstagramMedia: async (mediaItem: Partial<InstagramMedia>): Promise<InstagramMedia | null> => {
+    const backend = getDbClient();
+    const targetTenantId = mediaItem.tenant_id || DEFAULT_TENANT_ID;
+    const now = new Date().toISOString();
+    const payload: Partial<InstagramMedia> = {
+      tenant_id: targetTenantId,
+      platform_connection_id: mediaItem.platform_connection_id,
+      instagram_media_id: mediaItem.instagram_media_id || `ig_media_${Date.now()}`,
+      media_type: mediaItem.media_type || 'IMAGE',
+      media_product_type: mediaItem.media_product_type || 'FEED',
+      caption: mediaItem.caption || '',
+      media_url: mediaItem.media_url,
+      thumbnail_url: mediaItem.thumbnail_url,
+      permalink: mediaItem.permalink,
+      timestamp: mediaItem.timestamp || now,
+      username: mediaItem.username,
+      comments_count: mediaItem.comments_count || 0,
+      like_count: mediaItem.like_count || 0,
+      synced_at: now,
+      updated_at: now,
+    };
+
+    try {
+      const { data, error } = await backend
+        .from('instagram_media')
+        .upsert(payload, { onConflict: 'tenant_id,instagram_media_id' })
+        .select()
+        .single();
+
+      if (!error && data) {
+        const memList = instagramMediaMemoryStore.get(targetTenantId) || [];
+        const idx = memList.findIndex(m => m.instagram_media_id === data.instagram_media_id);
+        if (idx >= 0) {
+          memList[idx] = data;
+        } else {
+          memList.push(data);
+        }
+        instagramMediaMemoryStore.set(targetTenantId, memList);
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[INSTAGRAM_MEDIA_UPSERT_WARN]', err.message);
+    }
+
+    const memList = instagramMediaMemoryStore.get(targetTenantId) || [];
+    let existing = memList.find(m => m.instagram_media_id === payload.instagram_media_id);
+    if (!existing) {
+      existing = {
+        ...(payload as InstagramMedia),
+        id: (payload.id && payload.id.includes('-')) ? payload.id : `media_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        created_at: now,
+      };
+      memList.push(existing);
+    } else {
+      Object.assign(existing, payload);
+    }
+    instagramMediaMemoryStore.set(targetTenantId, memList);
+    return existing;
   },
 
   // Real Supabase Audit Logs

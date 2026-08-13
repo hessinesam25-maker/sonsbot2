@@ -3,10 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { TopHeader } from '@/components/TopHeader';
 import { 
-  MessageSquare, ShieldCheck, EyeOff, ThumbsUp, 
-  AlertOctagon, Sparkles, Filter, Send 
+  MessageSquare, EyeOff, Send, RefreshCw, AlertCircle, CheckCircle2 
 } from 'lucide-react';
-import { Comment, CommentClassification } from '@/lib/db/types';
+import { Comment, InstagramConnectionState } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
@@ -15,17 +14,66 @@ export default function CommentsInboxPage() {
   const { selectedTenantId, tenant } = useAuth();
   const { t, direction } = useLanguage();
   const [comments, setComments] = useState<Comment[]>([]);
+  const [igState, setIgState] = useState<InstagramConnectionState | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const loadData = async () => {
+    const data = await db.getComments(selectedTenantId);
+    setComments(data);
+    const connState = await db.getInstagramConnectionState(selectedTenantId);
+    setIgState(connState);
+
+    const conns = await db.getConnections(selectedTenantId);
+    const activeIg = conns.find(c => c.platform === 'instagram' && c.is_active);
+    if (activeIg?.last_synced_at) {
+      setLastSyncedAt(activeIg.last_synced_at);
+    }
+  };
 
   useEffect(() => {
-    async function loadComments() {
-      const data = await db.getComments(selectedTenantId);
-      setComments(data);
-    }
-    loadComments();
+    loadData();
   }, [selectedTenantId]);
 
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+
+  const handleManualSync = async () => {
+    if (!igState?.connected) return;
+
+    setIsSyncing(true);
+    setSyncFeedback(null);
+    try {
+      const res = await fetch('/api/instagram/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: selectedTenantId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setSyncFeedback({
+          type: 'error',
+          message: data.error || t('comments.syncFailed', { error: 'Unknown sync failure' }),
+        });
+      } else {
+        const msg = t('comments.syncSuccess', {
+          media: data.mediaSynced ?? 0,
+          comments: data.commentsSynced ?? 0,
+        });
+        setSyncFeedback({ type: 'success', message: msg });
+        await loadData();
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: err.message || 'Network error initiating sync.',
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleManualReply = async (commentId: string) => {
     const replyText = replyInputs[commentId];
@@ -75,18 +123,101 @@ export default function CommentsInboxPage() {
   });
 
   const restaurantName = tenant?.name || '';
+  const isIgConnected = Boolean(igState?.connected);
 
   return (
     <div dir={direction}>
       <TopHeader 
         title={t('comments.title', { restaurant: restaurantName })} 
-        subtitle={t('comments.subtitle')} 
+        subtitle={t('comments.subtitle', { restaurant: restaurantName })} 
       />
+
+      {/* Operational Sync Control Bar */}
+      <div 
+        className="glass-card" 
+        style={{ 
+          marginBottom: '1rem', 
+          padding: '1rem 1.25rem', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          flexWrap: 'wrap', 
+          gap: '1rem' 
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span 
+            className={`badge badge-${isIgConnected ? 'resolved' : 'review'}`}
+            style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+          >
+            Instagram {isIgConnected ? t('instagramState.connected') : t('instagramState.disconnected')}
+          </span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            {t('comments.lastSync')} {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString() : t('comments.neverSynced')}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <button
+            className="btn btn-primary"
+            style={{ fontSize: '0.82rem', opacity: (!isIgConnected || isSyncing) ? 0.6 : 1 }}
+            disabled={!isIgConnected || isSyncing}
+            onClick={handleManualSync}
+            title={!isIgConnected ? t('comments.connectInstagramFirst') : t('comments.syncNow')}
+          >
+            <RefreshCw size={15} className={isSyncing ? 'spin-anim' : ''} />
+            {isSyncing ? t('comments.syncing') : t('comments.syncNow')}
+          </button>
+        </div>
+      </div>
+
+      {/* Sync Status / Error Banner */}
+      {!isIgConnected && (
+        <div 
+          className="glass-card" 
+          style={{ 
+            marginBottom: '1rem', 
+            padding: '0.75rem 1rem', 
+            background: 'rgba(239, 68, 68, 0.1)', 
+            borderInlineStart: '4px solid var(--accent-red)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.85rem'
+          }}
+        >
+          <AlertCircle size={16} color="var(--accent-red)" />
+          <span>{t('comments.connectInstagramFirst')}</span>
+        </div>
+      )}
+
+      {syncFeedback && (
+        <div 
+          className="glass-card" 
+          style={{ 
+            marginBottom: '1rem', 
+            padding: '0.75rem 1rem', 
+            background: syncFeedback.type === 'success' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+            borderInlineStart: `4px solid ${syncFeedback.type === 'success' ? 'var(--accent-green, #22c55e)' : 'var(--accent-red, #ef4444)'}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.85rem'
+          }}
+        >
+          {syncFeedback.type === 'success' ? (
+            <CheckCircle2 size={16} color="var(--accent-green, #22c55e)" />
+          ) : (
+            <AlertCircle size={16} color="var(--accent-red, #ef4444)" />
+          )}
+          <span>{syncFeedback.message}</span>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '0.85rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
-          <Filter size={16} /> {t('comments.filterByClassification')}
+          {t('comments.filterByClassification')}
         </span>
 
         {['all', 'positive', 'question', 'complaint', 'collaboration', 'spam'].map((cat) => (
