@@ -625,6 +625,21 @@ export const db = {
   },
 
   deleteTenant: async (tenantId: string): Promise<{ success: boolean; error?: string }> => {
+    if (typeof window !== 'undefined') {
+      try {
+        const res = await fetch(`/api/admin/tenants?tenantId=${encodeURIComponent(tenantId)}`, {
+          method: 'DELETE',
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          return { success: false, error: data.error || 'Failed to delete restaurant.' };
+        }
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Network error deleting restaurant.' };
+      }
+    }
+
     const backend = getDbClient();
     try {
       const { error } = await backend

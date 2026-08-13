@@ -305,6 +305,8 @@
     "disconnect": "Disconnect",
     "successConnected": "Instagram account successfully connected.",
     "oauthError": "OAuth Error: Connection failed ({error}). Please try initiating authorization again.",
+    "alreadyLinkedError": "This Instagram account is already connected to another restaurant: {restaurantName}. Disconnect it there first.",
+    "tenantAlreadyHasAccountError": "This restaurant already has another Instagram account connected. Disconnect it first.",
     "officialIgLogin": "Official Instagram Login & Graph API",
     "directLoginFlow": "Direct Instagram Login Flow",
     "directLoginDesc": "Connect your Instagram Professional (Business or Creator) account directly with your Instagram credentials.",

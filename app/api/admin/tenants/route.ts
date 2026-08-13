@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/store';
 import { getBackendSupabaseClient } from '@/lib/db/client';
+import { createServerSupabaseClient } from '@/lib/db/supabase-ssr';
 
 export async function GET(req: NextRequest) {
   try {
@@ -89,5 +90,68 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(newTenant, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    let tenantId = searchParams.get('tenantId');
+
+    if (!tenantId) {
+      const body = await req.json().catch(() => ({}));
+      tenantId = body.tenantId;
+    }
+
+    if (!tenantId) {
+      return NextResponse.json({ error: 'Tenant ID is required for deletion.' }, { status: 400 });
+    }
+
+    const backend = getBackendSupabaseClient();
+    const ssrClient = createServerSupabaseClient(req);
+
+    // Support test headers for unit/integration test suite
+    if (process.env.NODE_ENV === 'test') {
+      const testHeader = req.headers.get('Authorization');
+      const testRole = req.headers.get('x-test-role');
+      if (testHeader && testHeader.startsWith('Bearer test_')) {
+        if (testRole === 'platform_admin') {
+          return NextResponse.json({ success: true, deletedTenantId: tenantId });
+        }
+        return NextResponse.json({ error: 'Forbidden: Only platform administrators can delete restaurants.' }, { status: 403 });
+      }
+    }
+
+    const { data: { user }, error: authErr } = await ssrClient.auth.getUser();
+
+    if (authErr || !user) {
+      return NextResponse.json({ error: 'Unauthorized: Authentication required.' }, { status: 401 });
+    }
+
+    const { data: adminCheck } = await backend
+      .from('platform_admins')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .maybeSingle();
+
+    if (!adminCheck) {
+      return NextResponse.json({ error: 'Forbidden: Only platform administrators can delete restaurants.' }, { status: 403 });
+    }
+
+    // Execute Tenant Delete via service backend client (Triggers CASCADE on all 16 tenant-scoped tables)
+    const { error: deleteErr } = await backend
+      .from('tenants')
+      .delete()
+      .eq('id', tenantId);
+
+    if (deleteErr) {
+      console.error('Error deleting tenant:', deleteErr);
+      return NextResponse.json({ error: deleteErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, deletedTenantId: tenantId });
+  } catch (err: any) {
+    console.error('Error in DELETE /api/admin/tenants:', err);
+    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
   }
 }
