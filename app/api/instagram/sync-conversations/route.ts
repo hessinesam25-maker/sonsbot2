@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/db/supabase-ssr';
 import { getBackendSupabaseClient } from '@/lib/db/client';
-import { syncInstagramData } from '@/lib/services/instagram-sync';
+import { syncInstagramConversations } from '@/lib/services/instagram-conversations-sync';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
     if (user && !authErr) {
       authenticatedUserId = user.id;
 
-      // Check Platform Admin
       const { data: adminCheck } = await backend
         .from('platform_admins')
         .select('id')
@@ -41,7 +40,6 @@ export async function POST(req: NextRequest) {
       if (adminCheck) {
         isPlatformAdmin = true;
       } else {
-        // Check Tenant User
         const { data: userCheck } = await backend
           .from('users')
           .select('tenant_id, role')
@@ -68,11 +66,10 @@ export async function POST(req: NextRequest) {
     if (!authenticatedUserId && !isPlatformAdmin && !userTenantId) {
       return NextResponse.json({
         success: false,
-        error: 'Unauthorized: Authentication required to sync Instagram data.',
+        error: 'Unauthorized: Authentication required to sync Instagram conversations.',
       }, { status: 401 });
     }
 
-    // Determine target tenant ID
     const targetTenantId = requestedTenantId || userTenantId;
 
     if (!targetTenantId) {
@@ -87,47 +84,39 @@ export async function POST(req: NextRequest) {
       if (userTenantId !== targetTenantId) {
         return NextResponse.json({
           success: false,
-          error: 'Forbidden: You do not have permission to sync Instagram data for this restaurant.',
+          error: 'Forbidden: You do not have permission to sync conversations for this restaurant.',
         }, { status: 403 });
       }
 
       if (userRole && !['owner', 'manager'].includes(userRole)) {
         return NextResponse.json({
           success: false,
-          error: 'Forbidden: Only restaurant owners and managers can trigger Instagram data sync.',
+          error: 'Forbidden: Only restaurant owners and managers can trigger conversation sync.',
         }, { status: 403 });
       }
     }
 
-    // 3. Execute Server-Side Instagram Sync
-    const result = await syncInstagramData(targetTenantId);
+    // 3. Execute Server-Side Instagram Conversations Sync
+    const result = await syncInstagramConversations(targetTenantId);
 
     if (!result.success) {
       const isNotFound = result.error?.includes('No active Instagram connection');
-      const isPermissionErr = result.error?.toLowerCase().includes('permission');
-      const isAuthErr = result.error?.toLowerCase().includes('token');
-
-      let statusCode = 400;
-      if (isNotFound) statusCode = 404;
-      else if (isPermissionErr) statusCode = 403;
-      else if (isAuthErr) statusCode = 401;
-
       return NextResponse.json({
         success: false,
         tenantId: targetTenantId,
         error: result.error,
-      }, { status: statusCode });
+      }, { status: isNotFound ? 404 : 400 });
     }
 
     return NextResponse.json({
       success: true,
       tenantId: targetTenantId,
-      mediaSynced: result.mediaSynced || 0,
-      commentsSynced: result.commentsSynced || 0,
+      conversationsSynced: result.conversationsSynced || 0,
+      messagesSynced: result.messagesSynced || 0,
       lastSuccessfulSync: result.lastSuccessfulSync,
     });
   } catch (err: any) {
-    console.error('Instagram sync API route error:', err);
+    console.error('Instagram sync conversations API route error:', err);
     return NextResponse.json({
       success: false,
       error: err.message || 'Internal server error',
