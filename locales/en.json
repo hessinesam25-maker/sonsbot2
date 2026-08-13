@@ -44,6 +44,7 @@
     "menu": "Restaurant Menu",
     "google": "Google Maps Sync",
     "rules": "Automation Rules",
+    "aiSettings": "AI Settings",
     "integrations": "Integrations",
     "logs": "Audit Logs",
     "settings": "Settings"
@@ -203,5 +204,63 @@
     "actor": "Actor",
     "details": "Details",
     "timestamp": "Timestamp"
+  },
+  "aiSettings": {
+    "headerTitle": "AI Settings — {restaurant}",
+    "headerSubtitle": "Tenant-Scoped AI Persona & Response Configuration",
+    "pageHeading": "AI Assistant Configuration",
+    "activeRestaurant": "Configuring active restaurant: {restaurant}",
+    "loading": "Loading AI Settings for {restaurant}...",
+    "masterSwitchTitle": "AI Assistant Master Switch",
+    "masterSwitchDesc": "Enable or disable AI capabilities for this restaurant.",
+    "aiEnabled": "AI Enabled",
+    "aiDisabled": "AI Disabled",
+    "primaryLanguage": "Primary Language",
+    "languages": {
+      "nl-BE": "Dutch (Belgium) — nl-BE",
+      "en": "English — en",
+      "fr": "French — fr",
+      "ar": "Arabic — ar"
+    },
+    "personaTitle": "Persona & Communication Style",
+    "tone": "Tone",
+    "tones": {
+      "friendly": "Friendly",
+      "professional": "Professional",
+      "casual": "Casual"
+    },
+    "replyLength": "Reply Length",
+    "replyLengths": {
+      "very_short": "Very Short",
+      "short": "Short",
+      "normal": "Normal"
+    },
+    "emojiUsage": "Emoji Usage",
+    "emojiUsages": {
+      "none": "None",
+      "low": "Low",
+      "normal": "Normal"
+    },
+    "customInstructions": "Custom AI Instructions",
+    "customInstructionsPlaceholder": "e.g. Always mention our daily lunch special when customers ask about menu recommendations. Be extra polite.",
+    "customInstructionsHelp": "Add restaurant-specific instructions for how the AI should respond.",
+    "channelsTitle": "Channels & Knowledge Integration",
+    "replyDms": "Reply to Instagram DMs",
+    "replyDmsDesc": "Allow AI to process and draft responses for direct messages",
+    "replyComments": "Reply to Instagram Comments",
+    "replyCommentsDesc": "Allow AI to process and draft replies to public post comments",
+    "useKb": "Use Knowledge Base",
+    "useKbDesc": "Include opening hours, FAQs, and restaurant menu info in context",
+    "fallbackBehavior": "Fallback Behavior",
+    "fallbacks": {
+      "human_handoff": "Human handoff (Flag for review)",
+      "fallback_message": "Fallback message (Send default greeting)"
+    },
+    "fallbackDesc": "Action taken when AI confidence score falls below threshold or question is ambiguous.",
+    "saveSettings": "Save Settings",
+    "savingSettings": "Saving Settings...",
+    "successMessage": "AI settings successfully updated for {restaurant}!",
+    "errorMessage": "Failed to save AI settings. Please try again.",
+    "loadErrorMessage": "Failed to load AI settings. Default settings displayed."
   }
 }

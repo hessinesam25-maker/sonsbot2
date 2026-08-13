@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { 
   Inbox, MessageSquare, BookOpen, Utensils, 
   Sliders, Share2, FileText, BarChart3, Coffee, 
-  ShieldCheck, LogOut, Building2, HelpCircle, Image, MapPin 
+  ShieldCheck, LogOut, Building2, HelpCircle, Image, MapPin, Bot
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -30,6 +30,7 @@ export const Sidebar: React.FC = () => {
     { href: '/dashboard', label: t('nav.overview'), icon: BarChart3 },
     { href: '/dashboard/inbox', label: t('nav.inbox'), icon: Inbox },
     { href: '/dashboard/comments', label: t('nav.comments'), icon: MessageSquare },
+    { href: '/dashboard/ai-settings', label: t('nav.aiSettings') || 'AI Settings', icon: Bot },
     { href: '/dashboard/rules', label: t('nav.rules'), icon: Sliders },
     { href: '/dashboard/knowledge', label: t('nav.knowledge'), icon: BookOpen },
     { href: '/dashboard/menu', label: t('nav.menu'), icon: Utensils },
