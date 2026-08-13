@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=Noto+Sans+Arabic:wght@300;400;500;600;700;800&display=swap');
 
 :root {
   --bg-primary: #0b0f19;
@@ -20,8 +20,8 @@
   --text-secondary: #9ca3af;
   --text-muted: #6b7280;
 
-  --font-heading: 'Outfit', sans-serif;
-  --font-body: 'Inter', sans-serif;
+  --font-heading: 'Outfit', 'Noto Sans Arabic', sans-serif;
+  --font-body: 'Inter', 'Noto Sans Arabic', sans-serif;
 
   --radius-sm: 8px;
   --radius-md: 14px;
@@ -63,6 +63,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-container {
   display: flex;
   min-height: 100vh;
+  width: 100%;
 }
 
 /* Sidebar Styling */
@@ -80,6 +81,7 @@ h1, h2, h3, h4, h5, h6 {
   top: 0;
   left: 0;
   z-index: 50;
+  overflow-y: auto;
 }
 
 .brand-header {
@@ -102,6 +104,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 800;
   font-size: 1.25rem;
   box-shadow: var(--shadow-glow);
+  flex-shrink: 0;
 }
 
 .brand-title {
@@ -186,6 +189,7 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
   font-weight: 700;
   font-size: 0.85rem;
+  flex-shrink: 0;
 }
 
 .user-role-badge {
@@ -203,6 +207,8 @@ h1, h2, h3, h4, h5, h6 {
   flex: 1;
   padding: 2rem;
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .top-bar {
@@ -210,6 +216,8 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 2rem;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .page-title-group h1 {
@@ -227,6 +235,7 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 /* Buttons */
@@ -335,6 +344,7 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   justify-content: center;
   font-size: 1.5rem;
+  flex-shrink: 0;
 }
 
 .stat-val {
@@ -354,6 +364,7 @@ h1, h2, h3, h4, h5, h6 {
   grid-template-columns: 340px 1fr;
   gap: 1.25rem;
   height: calc(100vh - 180px);
+  min-height: 550px;
 }
 
 .thread-list {
@@ -412,6 +423,8 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border-color);
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .chat-messages {
@@ -568,6 +581,13 @@ input:checked + .slider:before {
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* Mixed Content LTR Helpers */
+.ltr-text {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  display: inline-block;
+}
+
 /* RTL Layout Styles */
 html[dir="rtl"] {
   direction: rtl;
@@ -602,12 +622,94 @@ html[dir="rtl"] .data-table td {
   text-align: right;
 }
 
+html[dir="rtl"] .chat-bubble.customer {
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: var(--radius-md);
+}
+
+html[dir="rtl"] .chat-bubble.ai,
+html[dir="rtl"] .chat-bubble.agent {
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: var(--radius-md);
+}
+
+/* Flip directional icons in RTL */
+html[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
 /* Maintain LTR readability for numbers, code, emails and URLs in RTL mode */
 html[dir="rtl"] code,
 html[dir="rtl"] input[type="email"],
 html[dir="rtl"] input[type="url"],
-html[dir="rtl"] .ltr-text {
+html[dir="rtl"] input[type="tel"] {
   direction: ltr;
   unicode-bidi: embed;
+  text-align: right;
 }
 
+/* Mobile & Narrow Screen Responsive Media Queries */
+@media (max-width: 1024px) {
+  .inbox-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 220px;
+  }
+  
+  .main-content {
+    margin-left: 220px;
+    padding: 1.25rem;
+  }
+  
+  html[dir="rtl"] .main-content {
+    margin-right: 220px;
+    margin-left: 0;
+  }
+  
+  .top-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-container {
+    flex-direction: column;
+  }
+  
+  .sidebar {
+    position: relative;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  html[dir="rtl"] .sidebar {
+    border-left: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+  
+  .main-content {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding: 1rem;
+  }
+  
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}

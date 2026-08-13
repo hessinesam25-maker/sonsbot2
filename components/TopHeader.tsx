@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, ShieldCheck, Globe, Building2, ChevronDown, Share2 } from 'lucide-react';
+import { MapPin, ShieldCheck, Globe, Building2, Share2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
@@ -73,7 +73,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
 
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: '0.7rem', color: 'var(--accent-amber)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Active Restaurant
+              {t('common.activeContext')}
             </span>
             <select
               value={selectedTenantId}
@@ -86,7 +86,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
                 fontSize: '0.88rem',
                 cursor: 'pointer',
                 outline: 'none',
-                paddingRight: '0.5rem'
+                paddingRight: direction === 'rtl' ? '0' : '0.5rem',
+                paddingLeft: direction === 'rtl' ? '0.5rem' : '0',
               }}
             >
               {allTenants.map(t => (
@@ -112,10 +113,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({ title, subtitle }) => {
             fontWeight: 600,
             color: isIgConnected ? 'var(--accent-emerald)' : 'var(--accent-rose)'
           }}
-          title={isIgConnected ? 'Instagram connected for active restaurant' : 'Instagram not connected for active restaurant'}
+          title={isIgConnected ? t('common.connected') : t('common.notConnected')}
         >
           <Share2 size={14} />
-          <span>{isIgConnected ? 'Instagram Connected' : 'IG Disconnected'}</span>
+          <span>{isIgConnected ? t('common.connected') : t('common.notConnected')}</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem' }}>

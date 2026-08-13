@@ -63,11 +63,15 @@ export default function OverviewDashboard() {
     loadTenantDashboardData();
   }, [selectedTenantId]);
 
+  const restaurantName = tenant?.name || '';
+  const city = tenant?.city || 'Ghent';
+  const country = tenant?.country || 'Belgium';
+
   return (
     <div dir={direction}>
       <TopHeader 
-        title={`Dashboard Overview — ${tenant?.name || t('dashboard.title')}`} 
-        subtitle={`Operational Status & Live Metrics for ${tenant?.name || 'Active Restaurant'} (${tenant?.city || 'Ghent'}, ${tenant?.country || 'Belgium'})`} 
+        title={t('dashboard.overviewTitle', { restaurant: restaurantName })} 
+        subtitle={t('dashboard.overviewSubtitle', { restaurant: restaurantName, city, country })} 
       />
 
       {/* Operational Cards Grid */}
@@ -82,7 +86,7 @@ export default function OverviewDashboard() {
               {loading
                 ? '...'
                 : igState.connected
-                ? igState.formattedUsername || t('instagramState.usernameUnavailable')
+                ? <span className="ltr-text">{igState.formattedUsername || t('instagramState.usernameUnavailable')}</span>
                 : t('instagramState.disconnected')}
             </div>
             <div className="stat-lbl">{t('instagramState.connectionStatus')}</div>
@@ -96,7 +100,7 @@ export default function OverviewDashboard() {
           </div>
           <div>
             <div className="stat-val">{loading ? '...' : data.openConversationsCount}</div>
-            <div className="stat-lbl">Open Customer Conversations</div>
+            <div className="stat-lbl">{t('dashboard.openCustomerConvs')}</div>
           </div>
         </div>
 
@@ -107,7 +111,7 @@ export default function OverviewDashboard() {
           </div>
           <div>
             <div className="stat-val">{loading ? '...' : data.takeoverConversationsCount}</div>
-            <div className="stat-lbl">Manual Handoff Conversations</div>
+            <div className="stat-lbl">{t('dashboard.manualHandoffConvs')}</div>
           </div>
         </div>
 
@@ -118,33 +122,33 @@ export default function OverviewDashboard() {
           </div>
           <div>
             <div className="stat-val">{loading ? '...' : data.menuItemsCount}</div>
-            <div className="stat-lbl">Configured Menu Items</div>
+            <div className="stat-lbl">{t('dashboard.configuredMenuItems')}</div>
           </div>
         </div>
       </div>
 
       {/* Main Operational Overview Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
         {/* DM Automation & Fixed Reply Status */}
         <div className="glass-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Sliders size={20} color="var(--accent-amber)" /> Direct Message Automation Status
+              <Sliders size={20} color="var(--accent-amber)" /> {t('dashboard.dmAutomationStatus')}
             </h3>
             <Link href="/dashboard/rules" className="btn btn-secondary" style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}>
-              Configure Rules <ArrowRight size={14} />
+              {t('dashboard.configureRules')} <ArrowRight size={14} className={direction === 'rtl' ? 'rtl-flip' : ''} />
             </Link>
           </div>
 
           <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>DM Auto-Reply State:</span>
+              <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{t('dashboard.dmAutoReplyState')}</span>
               <span className={`badge ${!igState.connected ? 'badge-review' : data.isDmAutoReplyEnabled ? 'badge-open' : 'badge-review'}`}>
                 {!igState.connected
-                  ? 'UNAVAILABLE'
+                  ? t('dashboard.stateUnavailable')
                   : data.isDmAutoReplyEnabled
-                  ? 'ENABLED'
-                  : 'PAUSED'}
+                  ? t('dashboard.stateEnabled')
+                  : t('dashboard.statePaused')}
               </span>
             </div>
 
@@ -157,10 +161,10 @@ export default function OverviewDashboard() {
 
             <div style={{ fontSize: '0.85rem' }}>
               <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '0.35rem' }}>
-                Active Fixed Reply Message for {tenant?.name}:
+                {t('dashboard.activeFixedReply', { restaurant: restaurantName })}
               </span>
               <div style={{ background: 'rgba(255,255,255,0.04)', padding: '0.75rem', borderRadius: '4px', borderLeft: '3px solid var(--accent-amber)', fontStyle: data.defaultDmReply ? 'normal' : 'italic', color: data.defaultDmReply ? '#fff' : 'var(--text-muted)' }}>
-                {data.defaultDmReply || 'No default DM reply configured yet.'}
+                {data.defaultDmReply || t('dashboard.noDefaultReply')}
               </div>
             </div>
           </div>
@@ -169,29 +173,29 @@ export default function OverviewDashboard() {
         {/* Quick Navigation & Actions */}
         <div className="glass-card">
           <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>
-            Quick Actions
+            {t('dashboard.quickActions')}
           </h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <Link href="/dashboard/inbox" className="btn btn-secondary" style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Inbox size={16} color="var(--accent-amber)" /> View Customer Inbox
+                <Inbox size={16} color="var(--accent-amber)" /> {t('dashboard.viewInbox')}
               </span>
-              <ArrowRight size={14} />
+              <ArrowRight size={14} className={direction === 'rtl' ? 'rtl-flip' : ''} />
             </Link>
 
             <Link href="/dashboard/comments" className="btn btn-secondary" style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <MessageSquare size={16} color="var(--accent-indigo)" /> Manage Post Comments
+                <MessageSquare size={16} color="var(--accent-indigo)" /> {t('dashboard.manageComments')}
               </span>
-              <ArrowRight size={14} />
+              <ArrowRight size={14} className={direction === 'rtl' ? 'rtl-flip' : ''} />
             </Link>
 
             <Link href="/dashboard/clients" className="btn btn-secondary" style={{ justifyContent: 'space-between', padding: '0.75rem 1rem' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Sliders size={16} color="var(--accent-emerald)" /> Restaurant Settings & Danger Zone
+                <Sliders size={16} color="var(--accent-emerald)" /> {t('dashboard.restaurantSettings')}
               </span>
-              <ArrowRight size={14} />
+              <ArrowRight size={14} className={direction === 'rtl' ? 'rtl-flip' : ''} />
             </Link>
           </div>
         </div>

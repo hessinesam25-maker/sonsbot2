@@ -5,10 +5,12 @@ import { TopHeader } from '@/components/TopHeader';
 import { BookOpen, Save, MapPin, Clock, HelpCircle, CheckCircle2 } from 'lucide-react';
 import { KnowledgeBase } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
 
 export default function KnowledgeBaseEditorPage() {
   const { selectedTenantId, tenant } = useAuth();
+  const { t, direction } = useLanguage();
   const [kb, setKb] = useState<KnowledgeBase>({
     id: 'kb_001',
     tenant_id: selectedTenantId,
@@ -54,35 +56,38 @@ export default function KnowledgeBaseEditorPage() {
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
-  return (
-    <div>
-      <TopHeader 
-        title={`Knowledge Base Editor — ${tenant?.name || 'Restaurant'}`} 
-        subtitle={`Approved Factual Information Source for AI Responses (${tenant?.city || 'Ghent'}, ${tenant?.country || 'Belgium'})`} 
-      />
+  const restaurantName = tenant?.name || '';
+  const city = tenant?.city || 'Ghent';
+  const country = tenant?.country || 'Belgium';
 
+  return (
+    <div dir={direction}>
+      <TopHeader 
+        title={t('knowledge.title', { restaurant: restaurantName })} 
+        subtitle={t('knowledge.subtitle', { city, country })} 
+      />
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
         <button className="btn btn-primary" onClick={handleSave}>
-          <Save size={16} /> Save Knowledge Base Changes
+          <Save size={16} /> {t('knowledge.saveChanges')}
         </button>
       </div>
 
       {savedSuccess && (
         <div style={{ background: 'rgba(16, 185, 129, 0.2)', border: '1px solid var(--accent-emerald)', padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-emerald)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <CheckCircle2 size={18} /> Knowledge Base successfully saved and updated for AI Engine!
+          <CheckCircle2 size={18} /> {t('knowledge.saveSuccess')}
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
         {/* Core Info */}
         <div className="glass-card">
           <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <MapPin size={20} color="var(--accent-amber)" /> Core Café Details
+            <MapPin size={20} color="var(--accent-amber)" /> {t('knowledge.coreDetails')}
           </h3>
 
           <div className="form-group">
-            <label className="form-label">Café Name</label>
+            <label className="form-label">{t('knowledge.cafeName')}</label>
             <input 
               type="text" 
               className="form-input" 
@@ -92,7 +97,7 @@ export default function KnowledgeBaseEditorPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Address in Ghent</label>
+            <label className="form-label">{t('knowledge.addressInCity', { city })}</label>
             <input 
               type="text" 
               className="form-input" 
@@ -102,9 +107,9 @@ export default function KnowledgeBaseEditorPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Google Maps URL</label>
+            <label className="form-label">{t('knowledge.mapsUrl')}</label>
             <input 
-              type="text" 
+              type="url" 
               className="form-input" 
               value={kb.google_maps_url}
               onChange={(e) => setKb({ ...kb, google_maps_url: e.target.value })}
@@ -113,18 +118,18 @@ export default function KnowledgeBaseEditorPage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div className="form-group">
-              <label className="form-label">Contact Email</label>
+              <label className="form-label">{t('knowledge.contactEmail')}</label>
               <input 
-                type="text" 
+                type="email" 
                 className="form-input" 
                 value={kb.contact_email}
                 onChange={(e) => setKb({ ...kb, contact_email: e.target.value })}
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Contact Phone</label>
+              <label className="form-label">{t('knowledge.contactPhone')}</label>
               <input 
-                type="text" 
+                type="tel" 
                 className="form-input" 
                 value={kb.contact_phone}
                 onChange={(e) => setKb({ ...kb, contact_phone: e.target.value })}
@@ -136,15 +141,15 @@ export default function KnowledgeBaseEditorPage() {
         {/* Opening Hours */}
         <div className="glass-card">
           <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Clock size={20} color="var(--accent-indigo)" /> Opening Hours
+            <Clock size={20} color="var(--accent-indigo)" /> {t('knowledge.openingHours')}
           </h3>
 
           {Object.entries(kb.opening_hours).map(([day, hours]) => (
-            <div key={day} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem' }}>
+            <div key={day} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.88rem', textTransform: 'capitalize', fontWeight: 600 }}>{day}</span>
               <input 
                 type="text" 
-                className="form-input" 
+                className="form-input ltr-text" 
                 style={{ width: '180px', fontSize: '0.85rem' }}
                 value={hours}
                 onChange={(e) => setKb({
@@ -158,10 +163,10 @@ export default function KnowledgeBaseEditorPage() {
 
         {/* Reservation Rules & Takeaway Info */}
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem' }}>Reservation Rules & Takeaway Info</h3>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem' }}>{t('knowledge.reservationTakeawayTitle')}</h3>
 
           <div className="form-group">
-            <label className="form-label">Reservation Policy</label>
+            <label className="form-label">{t('knowledge.reservationPolicy')}</label>
             <textarea 
               className="form-textarea" 
               rows={3} 
@@ -171,7 +176,7 @@ export default function KnowledgeBaseEditorPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Delivery & Takeaway Information</label>
+            <label className="form-label">{t('knowledge.deliveryTakeawayInfo')}</label>
             <textarea 
               className="form-textarea" 
               rows={3} 
@@ -183,10 +188,10 @@ export default function KnowledgeBaseEditorPage() {
 
         {/* Wi-Fi & Payment Methods */}
         <div className="glass-card">
-          <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem' }}>Facilities & Payments</h3>
+          <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem' }}>{t('knowledge.facilitiesPaymentsTitle')}</h3>
 
           <div className="form-group">
-            <label className="form-label">Wi-Fi Network & Details</label>
+            <label className="form-label">{t('knowledge.wifiDetails')}</label>
             <input 
               type="text" 
               className="form-input" 
@@ -196,7 +201,7 @@ export default function KnowledgeBaseEditorPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Accepted Payment Methods (Comma separated)</label>
+            <label className="form-label">{t('knowledge.paymentMethods')}</label>
             <input 
               type="text" 
               className="form-input" 

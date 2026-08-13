@@ -43,7 +43,7 @@ export default function NewRestaurantClientPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to create restaurant client');
+        throw new Error(data.error || t('common.error'));
       }
 
       setSuccess(true);
@@ -59,7 +59,7 @@ export default function NewRestaurantClientPage() {
 
   if (!isPlatformAdmin) {
     return (
-      <div>
+      <div dir={direction}>
         <TopHeader title={t('clients.title')} subtitle={t('login.accessDenied')} />
         <div className="glass-card" style={{ padding: '2rem', textAlign: 'center' }}>
           <AlertCircle size={36} color="var(--accent-rose)" style={{ margin: '0 auto 1rem auto' }} />
@@ -78,7 +78,7 @@ export default function NewRestaurantClientPage() {
 
       <div style={{ marginBottom: '1.5rem' }}>
         <button className="btn btn-secondary" onClick={() => router.push('/dashboard/clients')}>
-          <ArrowLeft size={16} /> {t('common.back')}
+          <ArrowLeft size={16} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {t('common.back')}
         </button>
       </div>
 
@@ -121,7 +121,6 @@ export default function NewRestaurantClientPage() {
                 placeholder="contact@restaurant.be" 
                 value={formData.contact_email}
                 onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-                style={{ direction: 'ltr', textAlign: direction === 'rtl' ? 'right' : 'left' }}
               />
             </div>
 
@@ -133,7 +132,6 @@ export default function NewRestaurantClientPage() {
                 placeholder="+32 9 123 45 67" 
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                style={{ direction: 'ltr', textAlign: direction === 'rtl' ? 'right' : 'left' }}
               />
             </div>
           </div>
@@ -210,7 +208,6 @@ export default function NewRestaurantClientPage() {
               placeholder="https://example.com/logo.png"
               value={formData.logo_url}
               onChange={(e) => setFormData({ ...formData, logo_url: e.target.value })}
-              style={{ direction: 'ltr', textAlign: direction === 'rtl' ? 'right' : 'left' }}
             />
           </div>
 

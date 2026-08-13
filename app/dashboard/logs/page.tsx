@@ -5,10 +5,12 @@ import { TopHeader } from '@/components/TopHeader';
 import { FileText, Search, ShieldCheck, Filter } from 'lucide-react';
 import { AuditLog } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
 
 export default function AuditLogsPage() {
   const { selectedTenantId, tenant } = useAuth();
+  const { t, direction } = useLanguage();
   const [logs, setLogs] = useState<AuditLog[]>([]);
 
   useEffect(() => {
@@ -19,7 +21,6 @@ export default function AuditLogsPage() {
     loadLogs();
   }, [selectedTenantId]);
 
-
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredLogs = logs.filter(l => 
@@ -29,49 +30,49 @@ export default function AuditLogsPage() {
   );
 
   return (
-    <div>
+    <div dir={direction}>
       <TopHeader 
-        title="System Security & Audit Logs" 
-        subtitle="Immutable Platform Audit Log for Security Compliance, Webhook Verification & AI Decisions" 
+        title={t('logs.title')} 
+        subtitle={t('logs.subtitle')} 
       />
 
       <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '0.85rem 1.25rem' }}>
         <div style={{ position: 'relative' }}>
-          <Search size={16} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-secondary)' }} />
+          <Search size={16} style={{ position: 'absolute', left: direction === 'rtl' ? 'auto' : '10px', right: direction === 'rtl' ? '10px' : 'auto', top: '10px', color: 'var(--text-secondary)' }} />
           <input 
             type="text" 
-            placeholder="Search audit logs by event, actor, or details..." 
+            placeholder={t('logs.searchPlaceholder')} 
             className="form-input" 
-            style={{ width: '100%', paddingLeft: '32px' }}
+            style={{ width: '100%', paddingLeft: direction === 'rtl' ? '0.9rem' : '32px', paddingRight: direction === 'rtl' ? '32px' : '0.9rem' }}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
       </div>
 
-      <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="glass-card" style={{ padding: 0, overflowX: 'auto' }}>
         <table className="data-table">
           <thead>
             <tr>
-              <th>Timestamp</th>
-              <th>Event Type</th>
-              <th>Actor</th>
-              <th>Details</th>
+              <th>{t('logs.colTimestamp')}</th>
+              <th>{t('logs.colEventType')}</th>
+              <th>{t('logs.colActor')}</th>
+              <th>{t('logs.colDetails')}</th>
             </tr>
           </thead>
           <tbody>
             {filteredLogs.map((log) => (
               <tr key={log.id}>
-                <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }} className="ltr-text">
                   {new Date(log.created_at).toLocaleString()}
                 </td>
                 <td>
-                  <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--accent-amber)' }}>{log.event_type}</span>
+                  <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--accent-amber)' }} className="ltr-text">{log.event_type}</span>
                 </td>
                 <td>
                   <span className="badge badge-open" style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>{log.actor_type}</span>
                 </td>
-                <td style={{ fontSize: '0.82rem', fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                <td style={{ fontSize: '0.82rem', fontFamily: 'monospace', color: 'var(--text-primary)' }} className="ltr-text">
                   {JSON.stringify(log.details)}
                 </td>
               </tr>

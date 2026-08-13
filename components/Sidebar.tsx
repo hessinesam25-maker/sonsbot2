@@ -30,7 +30,7 @@ export const Sidebar: React.FC = () => {
     { href: '/dashboard', label: t('nav.overview'), icon: BarChart3 },
     { href: '/dashboard/inbox', label: t('nav.inbox'), icon: Inbox },
     { href: '/dashboard/comments', label: t('nav.comments'), icon: MessageSquare },
-    { href: '/dashboard/ai-settings', label: t('nav.aiSettings') || 'AI Settings', icon: Bot },
+    { href: '/dashboard/ai-settings', label: t('nav.aiSettings'), icon: Bot },
     { href: '/dashboard/rules', label: t('nav.rules'), icon: Sliders },
     { href: '/dashboard/knowledge', label: t('nav.knowledge'), icon: BookOpen },
     { href: '/dashboard/menu', label: t('nav.menu'), icon: Utensils },
@@ -68,7 +68,7 @@ export const Sidebar: React.FC = () => {
 
         {/* Platform Admin Tenant Context Switcher */}
         {isPlatformAdmin && (
-          <div style={{ padding: '0.75rem 1rem', marginBottom: '0.75rem', background: 'rgba(245, 158, 11, 0.1)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent-amber)' }}>
+          <div style={{ padding: '0.75rem 1rem', marginBottom: '0.75rem', marginTop: '0.75rem', background: 'rgba(245, 158, 11, 0.1)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--accent-amber)' }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-amber)', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
               <Building2 size={12} /> {t('common.activeContext')}:
             </div>
@@ -76,7 +76,7 @@ export const Sidebar: React.FC = () => {
               className="form-select" 
               value={selectedTenantId}
               onChange={(e) => switchTenant(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '0.4rem', background: 'rgba(0,0,0,0.4)', color: '#fff' }}
+              style={{ fontSize: '0.8rem', padding: '0.4rem', background: 'rgba(0,0,0,0.4)', color: '#fff', width: '100%' }}
             >
               {allTenants.map(t => (
                 <option key={t.id} value={t.id}>
@@ -112,16 +112,16 @@ export const Sidebar: React.FC = () => {
           </div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
             <div style={{ fontSize: '0.85rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {user?.name || 'Platform Administrator'}
+              {user?.name || t('common.platformAdmin')}
             </div>
             <span className="user-role-badge">
-              PLATFORM ADMIN
+              {t('common.adminBadge')}
             </span>
           </div>
         </div>
 
         <button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'center', fontSize: '0.8rem', padding: '0.4rem' }} onClick={handleSignOut}>
-          <LogOut size={14} /> {t('common.signOut')}
+          <LogOut size={14} className={direction === 'rtl' ? 'rtl-flip' : ''} /> {t('common.signOut')}
         </button>
       </div>
     </aside>
