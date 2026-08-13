@@ -84,7 +84,7 @@ export default function CommentsInboxPage() {
       />
 
       {/* Filter Bar */}
-      <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '0.85rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', overflowX: 'auto' }}>
+      <div className="glass-card" style={{ marginBottom: '1.5rem', padding: '0.85rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
         <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}>
           <Filter size={16} /> {t('comments.filterByClassification')}
         </span>
@@ -93,10 +93,10 @@ export default function CommentsInboxPage() {
           <button 
             key={cat} 
             className={`btn ${selectedFilter === cat ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem', textTransform: 'capitalize' }}
+            style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
             onClick={() => setSelectedFilter(cat)}
           >
-            {cat === 'all' ? t('common.all') : cat}
+            {t(`comments.classifications.${cat}`) || cat}
           </button>
         ))}
       </div>
@@ -116,7 +116,7 @@ export default function CommentsInboxPage() {
                   <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--accent-amber)' }} className="ltr-text">@{comment.author_username}</div>
                   <span className="badge badge-open" style={{ fontSize: '0.7rem' }}>Instagram {comment.media_type}</span>
                   <span className={`badge badge-${comment.classification === 'spam' ? 'review' : 'resolved'}`} style={{ fontSize: '0.7rem' }}>
-                    {comment.classification}
+                    {t(`comments.classifications.${comment.classification}`) || comment.classification}
                   </span>
                 </div>
 

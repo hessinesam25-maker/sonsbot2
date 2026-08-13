@@ -165,7 +165,24 @@
     "typeReplyPlaceholder": "اكتب رداً عاماً على التعليق...",
     "postReply": "نشر الرد العام",
     "classification": "التصنيف",
-    "reply": "الرد على التعليق"
+    "reply": "الرد على التعليق",
+    "classifications": {
+      "all": "الكل",
+      "positive": "إيجابي",
+      "question": "سؤال",
+      "complaint": "شكوى",
+      "collaboration": "تعاون",
+      "spam": "مزعج / سبام"
+    }
+  },
+  "weekdays": {
+    "monday": "الإثنين",
+    "tuesday": "الثلاثاء",
+    "wednesday": "الأربعاء",
+    "thursday": "الخميس",
+    "friday": "الجمعة",
+    "saturday": "السبت",
+    "sunday": "الأحد"
   },
   "knowledge": {
     "title": "محرر قاعدة المعرفة — {restaurant}",

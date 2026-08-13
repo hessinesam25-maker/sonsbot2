@@ -9,6 +9,10 @@ export const DEFAULT_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 const aiSettingsMemoryStore = new Map<string, AISettings>();
 
+function getDbClient() {
+  return typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+}
+
 export function getNormalizedInstagramState(connections: PlatformConnection[]): InstagramConnectionState {
   const igConnections = connections.filter(c => c.platform === 'instagram' && c.is_active);
 
@@ -53,7 +57,8 @@ export function getNormalizedInstagramState(connections: PlatformConnection[]): 
 export const db = {
   // Platform Admin & Tenants Fetch
   getAllTenants: async (): Promise<Tenant[]> => {
-    const { data } = await supabaseFrontend
+    const client = getDbClient();
+    const { data } = await client
       .from('tenants')
       .select('*')
       .order('name', { ascending: true });
@@ -61,7 +66,8 @@ export const db = {
   },
 
   getTenant: async (tenantId: string = DEFAULT_TENANT_ID): Promise<Tenant | null> => {
-    const { data, error } = await supabaseFrontend
+    const client = getDbClient();
+    const { data, error } = await client
       .from('tenants')
       .select('*')
       .eq('id', tenantId)
@@ -85,7 +91,7 @@ export const db = {
   },
 
   createTenant: async (tenantData: Partial<Tenant>): Promise<Tenant> => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     try {
       const payload: Record<string, any> = {
         name: tenantData.name,
@@ -109,7 +115,6 @@ export const db = {
         .single();
 
       if (error) {
-        // Fall back to basic payload insert if extended column fails
         delete payload.contact_email;
         delete payload.phone;
         delete payload.logo_url;
@@ -149,7 +154,8 @@ export const db = {
 
   // Real Supabase Users Fetch
   getUsers: async (tenantId: string = DEFAULT_TENANT_ID): Promise<User[]> => {
-    const { data, error } = await supabaseFrontend
+    const client = getDbClient();
+    const { data, error } = await client
       .from('users')
       .select('*')
       .eq('tenant_id', tenantId);
@@ -162,7 +168,7 @@ export const db = {
 
   // Real Supabase Connections
   getConnections: async (tenantId?: string): Promise<PlatformConnection[]> => {
-    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const client = getDbClient();
     let query = client.from('platform_connections').select('*');
     if (tenantId) {
       query = query.eq('tenant_id', tenantId);
@@ -181,7 +187,7 @@ export const db = {
   },
 
   updateConnection: async (id: string, updates: Partial<PlatformConnection>) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('platform_connections')
       .update(updates)
@@ -193,7 +199,8 @@ export const db = {
 
   // Real Supabase Knowledge Base
   getKnowledgeBase: async (tenantId: string = DEFAULT_TENANT_ID): Promise<KnowledgeBase> => {
-    const { data } = await supabaseFrontend
+    const client = getDbClient();
+    const { data } = await client
       .from('knowledge_base')
       .select('*')
       .eq('tenant_id', tenantId)
@@ -231,7 +238,7 @@ export const db = {
   },
 
   updateKnowledgeBase: async (updates: Partial<KnowledgeBase>, tenantId: string = DEFAULT_TENANT_ID) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const targetTenantId = updates.tenant_id || tenantId;
     const { data } = await backend
       .from('knowledge_base')
@@ -243,7 +250,8 @@ export const db = {
 
   // FAQs Table Operations
   getFAQs: async (tenantId: string = DEFAULT_TENANT_ID): Promise<FAQ[]> => {
-    const { data } = await supabaseFrontend
+    const client = getDbClient();
+    const { data } = await client
       .from('faqs')
       .select('*')
       .eq('tenant_id', tenantId)
@@ -252,7 +260,7 @@ export const db = {
   },
 
   addFAQ: async (faq: Omit<FAQ, 'id' | 'created_at' | 'updated_at'>): Promise<FAQ> => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('faqs')
       .insert(faq)
@@ -263,7 +271,8 @@ export const db = {
 
   // Real Supabase Menu Items
   getMenu: async (tenantId: string = DEFAULT_TENANT_ID): Promise<MenuItem[]> => {
-    const { data } = await supabaseFrontend
+    const client = getDbClient();
+    const { data } = await client
       .from('menu_items')
       .select('*')
       .eq('tenant_id', tenantId);
@@ -271,7 +280,7 @@ export const db = {
   },
 
   addMenuItem: async (item: Omit<MenuItem, 'id' | 'created_at'>, tenantId: string = DEFAULT_TENANT_ID) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('menu_items')
       .insert({ ...item, tenant_id: item.tenant_id || tenantId })
@@ -281,7 +290,7 @@ export const db = {
   },
 
   updateMenuItem: async (id: string, updates: Partial<MenuItem>) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('menu_items')
       .update(updates)
@@ -292,13 +301,13 @@ export const db = {
   },
 
   deleteMenuItem: async (id: string) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     await backend.from('menu_items').delete().eq('id', id);
   },
 
   // Real Supabase Automation Rules
   getAutomationRules: async (tenantId: string = DEFAULT_TENANT_ID): Promise<AutomationRules> => {
-    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const client = getDbClient();
     const { data, error } = await client
       .from('automation_rules')
       .select('*')
@@ -343,7 +352,7 @@ export const db = {
   },
 
   updateAutomationRules: async (updates: Partial<AutomationRules>, tenantId: string = DEFAULT_TENANT_ID) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const targetTenantId = updates.tenant_id || tenantId;
     const { data } = await backend
       .from('automation_rules')
@@ -355,7 +364,7 @@ export const db = {
 
   // Real Supabase AI Settings with graceful fallback
   getAISettings: async (tenantId: string = DEFAULT_TENANT_ID): Promise<AISettings> => {
-    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const client = getDbClient();
     try {
       const { data, error } = await client
         .from('ai_settings')
@@ -394,7 +403,7 @@ export const db = {
   },
 
   updateAISettings: async (updates: Partial<AISettings>, tenantId: string = DEFAULT_TENANT_ID): Promise<AISettings> => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const targetTenantId = updates.tenant_id || tenantId;
     const existing = await db.getAISettings(targetTenantId);
 
@@ -432,7 +441,7 @@ export const db = {
 
   // Real Supabase Conversations
   getConversations: async (tenantId: string = DEFAULT_TENANT_ID): Promise<Conversation[]> => {
-    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const client = getDbClient();
     const { data } = await client
       .from('conversations')
       .select('*')
@@ -442,7 +451,7 @@ export const db = {
   },
 
   getConversationById: async (id: string): Promise<Conversation | null> => {
-    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const client = getDbClient();
     const { data } = await client
       .from('conversations')
       .select('*')
@@ -452,7 +461,7 @@ export const db = {
   },
 
   verifyConversationExists: async (id: string, tenantId: string): Promise<boolean> => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('conversations')
       .select('id')
@@ -463,7 +472,7 @@ export const db = {
   },
 
   createConversation: async (conv: Partial<Conversation>): Promise<Conversation | null> => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const payload = {
       id: (conv.id && conv.id.includes('-')) ? conv.id : crypto.randomUUID(),
       tenant_id: conv.tenant_id || DEFAULT_TENANT_ID,
@@ -494,7 +503,6 @@ export const db = {
         message: error.message,
       });
 
-      // If unique constraint violation (code 23505), fetch existing conversation from DB
       if (error.code === '23505' || error.message?.includes('unique constraint')) {
         const { data: existing } = await backend
           .from('conversations')
@@ -515,7 +523,7 @@ export const db = {
   },
 
   updateConversation: async (id: string, updates: Partial<Conversation>) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('conversations')
       .update(updates)
@@ -527,7 +535,7 @@ export const db = {
 
   // Real Supabase Messages
   getMessages: async (conversationId: string): Promise<Message[]> => {
-    const client = typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
+    const client = getDbClient();
     const { data } = await client
       .from('messages')
       .select('*')
@@ -537,7 +545,7 @@ export const db = {
   },
 
   addMessage: async (msg: Omit<Message, 'id' | 'created_at'>) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data, error } = await backend
       .from('messages')
       .insert(msg)
@@ -554,7 +562,6 @@ export const db = {
       return null;
     }
 
-    // Update last_message_at in conversation
     await backend
       .from('conversations')
       .update({ last_message_at: new Date().toISOString() })
@@ -565,7 +572,8 @@ export const db = {
 
   // Real Supabase Comments
   getComments: async (tenantId: string = DEFAULT_TENANT_ID): Promise<Comment[]> => {
-    const { data } = await supabaseFrontend
+    const client = getDbClient();
+    const { data } = await client
       .from('comments')
       .select('*')
       .eq('tenant_id', tenantId)
@@ -574,7 +582,7 @@ export const db = {
   },
 
   addComment: async (cmt: Omit<Comment, 'id' | 'created_at'>) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('comments')
       .insert(cmt)
@@ -584,7 +592,7 @@ export const db = {
   },
 
   updateComment: async (id: string, updates: Partial<Comment>) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const { data } = await backend
       .from('comments')
       .update(updates)
@@ -596,7 +604,8 @@ export const db = {
 
   // Real Supabase Audit Logs
   getAuditLogs: async (tenantId: string = DEFAULT_TENANT_ID): Promise<AuditLog[]> => {
-    const { data } = await supabaseFrontend
+    const client = getDbClient();
+    const { data } = await client
       .from('audit_logs')
       .select('*')
       .eq('tenant_id', tenantId)
@@ -605,7 +614,7 @@ export const db = {
   },
 
   addAuditLog: async (log: Omit<AuditLog, 'id' | 'created_at' | 'tenant_id'> & { tenant_id?: string }) => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     const targetTenantId = log.tenant_id || DEFAULT_TENANT_ID;
     const { data } = await backend
       .from('audit_logs')
@@ -616,7 +625,7 @@ export const db = {
   },
 
   deleteTenant: async (tenantId: string): Promise<{ success: boolean; error?: string }> => {
-    const backend = getBackendSupabaseClient();
+    const backend = getDbClient();
     try {
       const { error } = await backend
         .from('tenants')
@@ -634,4 +643,3 @@ export const db = {
     }
   }
 };
-

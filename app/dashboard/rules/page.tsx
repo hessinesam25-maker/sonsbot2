@@ -9,7 +9,7 @@ import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
 
 export default function RulesPage() {
-  const { selectedTenantId, tenant } = useAuth();
+  const { selectedTenantId, tenant, isLoading } = useAuth();
   const { t, direction } = useLanguage();
   const [activeTab, setActiveTab] = useState<'dm' | 'comments'>('dm');
   const [igState, setIgState] = useState<import('@/lib/db/types').InstagramConnectionState>({
@@ -35,19 +35,24 @@ export default function RulesPage() {
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
+    if (isLoading || !selectedTenantId) return;
+
+    let isMounted = true;
     async function loadRules() {
       const state = await db.getInstagramConnectionState(selectedTenantId);
-      setIgState(state);
+      if (isMounted) setIgState(state);
 
       const data = await db.getAutomationRules(selectedTenantId);
-      if (data) {
+      if (isMounted && data) {
         setRules(data);
       }
     }
     loadRules();
-  }, [selectedTenantId]);
+    return () => { isMounted = false; };
+  }, [selectedTenantId, isLoading]);
 
   const handleSave = async () => {
+    if (!selectedTenantId) return;
     setSaving(true);
     try {
       await db.updateAutomationRules({ ...rules, tenant_id: selectedTenantId }, selectedTenantId);
@@ -61,6 +66,20 @@ export default function RulesPage() {
   };
 
   const restaurantName = tenant?.name || '';
+
+  if (isLoading || !selectedTenantId) {
+    return (
+      <div dir={direction}>
+        <TopHeader 
+          title={t('rules.title', { restaurant: restaurantName })} 
+          subtitle={t('rules.subtitle')} 
+        />
+        <div className="glass-card" style={{ padding: '2rem', color: 'var(--text-muted)' }}>
+          {t('common.loading')}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div dir={direction}>

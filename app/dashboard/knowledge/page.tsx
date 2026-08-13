@@ -116,21 +116,23 @@ export default function KnowledgeBaseEditorPage() {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <div className="form-group">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+            <div className="form-group" style={{ minWidth: 0 }}>
               <label className="form-label">{t('knowledge.contactEmail')}</label>
               <input 
                 type="email" 
-                className="form-input" 
+                className="form-input ltr-text" 
+                style={{ width: '100%' }}
                 value={kb.contact_email}
                 onChange={(e) => setKb({ ...kb, contact_email: e.target.value })}
               />
             </div>
-            <div className="form-group">
+            <div className="form-group" style={{ minWidth: 0 }}>
               <label className="form-label">{t('knowledge.contactPhone')}</label>
               <input 
                 type="tel" 
-                className="form-input" 
+                className="form-input ltr-text" 
+                style={{ width: '100%' }}
                 value={kb.contact_phone}
                 onChange={(e) => setKb({ ...kb, contact_phone: e.target.value })}
               />
@@ -146,7 +148,9 @@ export default function KnowledgeBaseEditorPage() {
 
           {Object.entries(kb.opening_hours).map(([day, hours]) => (
             <div key={day} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.88rem', textTransform: 'capitalize', fontWeight: 600 }}>{day}</span>
+              <span style={{ fontSize: '0.88rem', textTransform: 'capitalize', fontWeight: 600 }}>
+                {t(`weekdays.${day}`) || day}
+              </span>
               <input 
                 type="text" 
                 className="form-input ltr-text" 

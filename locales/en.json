@@ -165,7 +165,24 @@
     "typeReplyPlaceholder": "Type public comment reply...",
     "postReply": "Post Public Reply",
     "classification": "Classification",
-    "reply": "Reply to Comment"
+    "reply": "Reply to Comment",
+    "classifications": {
+      "all": "All",
+      "positive": "Positive",
+      "question": "Question",
+      "complaint": "Complaint",
+      "collaboration": "Collaboration",
+      "spam": "Spam"
+    }
+  },
+  "weekdays": {
+    "monday": "Monday",
+    "tuesday": "Tuesday",
+    "wednesday": "Wednesday",
+    "thursday": "Thursday",
+    "friday": "Friday",
+    "saturday": "Saturday",
+    "sunday": "Sunday"
   },
   "knowledge": {
     "title": "Knowledge Base Editor — {restaurant}",

@@ -9,12 +9,12 @@ import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { db } from '@/lib/db/store';
 
 export default function AISettingsPage() {
-  const { selectedTenantId, tenant } = useAuth();
+  const { selectedTenantId, tenant, isLoading: authLoading } = useAuth();
   const { t, direction } = useLanguage();
 
   const [settings, setSettings] = useState<AISettings>({
-    id: `ai_set_${selectedTenantId.slice(0, 8)}`,
-    tenant_id: selectedTenantId,
+    id: `ai_set_${selectedTenantId?.slice(0, 8) || '001'}`,
+    tenant_id: selectedTenantId || '',
     ai_enabled: false,
     primary_language: 'nl-BE',
     tone: 'friendly',
@@ -40,6 +40,8 @@ export default function AISettingsPage() {
   });
 
   useEffect(() => {
+    if (authLoading || !selectedTenantId) return;
+
     let isMounted = true;
     async function loadSettings() {
       setLoading(true);
@@ -80,13 +82,13 @@ export default function AISettingsPage() {
     return () => {
       isMounted = false;
     };
-  }, [selectedTenantId, t]);
+  }, [selectedTenantId, authLoading, t]);
 
   const handleSave = async () => {
+    if (!selectedTenantId) return;
     setSaving(true);
     setSavedSuccess(false);
     setErrorMessage(null);
-    const restaurantName = tenant?.name || '';
 
     try {
       const res = await fetch('/api/ai-settings', {
@@ -123,7 +125,7 @@ export default function AISettingsPage() {
 
   const restaurantName = tenant?.name || '';
 
-  if (loading) {
+  if (authLoading || loading || !selectedTenantId) {
     return (
       <div dir={direction}>
         <TopHeader 

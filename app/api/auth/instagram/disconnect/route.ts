@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No active Instagram connection found for this tenant.' }, { status: 404 });
     }
 
-    const activeConnections = connections.filter(c => c.is_active);
+    const activeConnections = connections.filter((c: any) => c.is_active);
 
     if (activeConnections.length === 0) {
       return NextResponse.json({ error: 'No active Instagram connection found for this tenant.' }, { status: 404 });
