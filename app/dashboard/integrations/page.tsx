@@ -115,7 +115,13 @@ function IntegrationsContent() {
       {errorMessage && (
         <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444', padding: '1rem', borderRadius: 'var(--radius-sm)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#ef4444' }}>
           <XCircle size={18} />
-          <span>{t('integrations.oauthError', { error: errorMessage })}</span>
+          <span>
+            {errorMessage === 'already_linked'
+              ? t('integrations.alreadyLinkedError', { restaurantName: searchParams.get('conflict_tenant') || 'another restaurant' })
+              : errorMessage === 'tenant_already_has_account'
+              ? t('integrations.tenantAlreadyHasAccountError')
+              : t('integrations.oauthError', { error: errorMessage })}
+          </span>
         </div>
       )}
 

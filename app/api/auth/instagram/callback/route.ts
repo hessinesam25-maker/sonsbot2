@@ -124,10 +124,66 @@ export async function GET(req: NextRequest) {
       console.log(JSON.stringify({ stage: 'profile_lookup', tenant_id: tenantId, account_id: accountId, status: 'success' }));
     }
 
-    // 3. Encrypt access token using AES-256-GCM before database storage
+    // 3. INVARIANT CHECK A: Verify Instagram account is NOT actively linked to another tenant
+    const { data: existingActiveOtherTenant } = await backend
+      .from('platform_connections')
+      .select('tenant_id')
+      .eq('platform', 'instagram')
+      .eq('account_id', accountId)
+      .eq('is_active', true)
+      .neq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (existingActiveOtherTenant) {
+      const { data: conflictingTenant } = await backend
+        .from('tenants')
+        .select('name')
+        .eq('id', existingActiveOtherTenant.tenant_id)
+        .maybeSingle();
+
+      const conflictingName = conflictingTenant?.name || 'another restaurant';
+      console.warn(JSON.stringify({
+        stage: 'duplicate_account_check',
+        account_id: accountId,
+        target_tenant_id: tenantId,
+        conflicting_tenant_id: existingActiveOtherTenant.tenant_id,
+        status: 'blocked_already_linked'
+      }));
+
+      const encodedTenantName = encodeURIComponent(conflictingName);
+      return NextResponse.redirect(
+        new URL(`/dashboard/integrations?error=already_linked&conflict_tenant=${encodedTenantName}`, req.url)
+      );
+    }
+
+    // 4. INVARIANT CHECK B: Verify target tenant does NOT already have a DIFFERENT active Instagram account
+    const { data: existingDifferentAccountSameTenant } = await backend
+      .from('platform_connections')
+      .select('id, account_id')
+      .eq('tenant_id', tenantId)
+      .eq('platform', 'instagram')
+      .eq('is_active', true)
+      .neq('account_id', accountId)
+      .maybeSingle();
+
+    if (existingDifferentAccountSameTenant) {
+      console.warn(JSON.stringify({
+        stage: 'tenant_account_limit_check',
+        target_tenant_id: tenantId,
+        new_account_id: accountId,
+        existing_account_id: existingDifferentAccountSameTenant.account_id,
+        status: 'blocked_tenant_already_has_account'
+      }));
+
+      return NextResponse.redirect(
+        new URL('/dashboard/integrations?error=tenant_already_has_account', req.url)
+      );
+    }
+
+    // 5. Encrypt access token using AES-256-GCM before database storage
     const encryptedToken = encryptToken(accessToken);
 
-    // 4. Upsert connection record strictly linked to tenantId
+    // 6. Upsert connection record strictly linked to tenantId
     const { data: upsertedConn, error: upsertErr } = await backend
       .from('platform_connections')
       .upsert({
@@ -153,7 +209,7 @@ export async function GET(req: NextRequest) {
     const connectionId = upsertedConn?.id || 'unknown';
     console.log(JSON.stringify({ stage: 'database_upsert', tenant_id: tenantId, connection_id: connectionId, status: 'success' }));
 
-    // 5. Record Audit Log
+    // 7. Record Audit Log
     await db.addAuditLog({
       tenant_id: tenantId,
       event_type: 'INSTAGRAM_LOGIN_CONNECTED',

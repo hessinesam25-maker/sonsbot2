@@ -5,15 +5,21 @@ import Link from 'next/link';
 import { TopHeader } from '@/components/TopHeader';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { useAuth } from '@/lib/auth/AuthContext';
-import { Building2, Plus, Globe2, Clock, CheckCircle2, AlertCircle, ArrowRight, ExternalLink } from 'lucide-react';
+import { Building2, Plus, Globe2, Clock, CheckCircle2, AlertCircle, ArrowRight, ExternalLink, Trash2, AlertTriangle, X } from 'lucide-react';
 import { Tenant } from '@/lib/db/types';
 import { db } from '@/lib/db/store';
 
 export default function RestaurantClientsPage() {
-  const { isPlatformAdmin, switchTenant, selectedTenantId } = useAuth();
+  const { isPlatformAdmin, switchTenant, selectedTenantId, allowedTenants, refreshAuthContext } = useAuth();
   const { t, direction } = useLanguage();
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Modal State for Delete Confirmation
+  const [deletingTenant, setDeletingTenant] = useState<Tenant | null>(null);
+  const [typedConfirmName, setTypedConfirmName] = useState<string>('');
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchTenants = async () => {
     setLoading(true);
@@ -33,6 +39,55 @@ export default function RestaurantClientsPage() {
 
   const handleSelectClient = (tenantId: string) => {
     switchTenant(tenantId);
+  };
+
+  const openDeleteModal = (tenant: Tenant) => {
+    setDeletingTenant(tenant);
+    setTypedConfirmName('');
+    setDeleteError(null);
+  };
+
+  const closeDeleteModal = () => {
+    setDeletingTenant(null);
+    setTypedConfirmName('');
+    setDeleteError(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingTenant) return;
+    if (typedConfirmName !== deletingTenant.name) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await db.deleteTenant(deletingTenant.id);
+      if (!res.success) {
+        setDeleteError(res.error || 'Failed to delete restaurant.');
+        return;
+      }
+
+      const targetId = deletingTenant.id;
+      closeDeleteModal();
+
+      // If deleted tenant was currently selected, handle active tenant transition safely
+      if (selectedTenantId === targetId) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('sonsbot_selected_tenant_id');
+        }
+        const remaining = allowedTenants.filter(t => t.id !== targetId);
+        if (remaining.length > 0) {
+          await switchTenant(remaining[0].id);
+        }
+      }
+
+      await refreshAuthContext();
+      await fetchTenants();
+    } catch (err: any) {
+      setDeleteError(err.message || 'Error executing restaurant deletion.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   if (!isPlatformAdmin) {
@@ -135,12 +190,100 @@ export default function RestaurantClientsPage() {
                   >
                     <ExternalLink size={16} />
                   </Link>
+
+                  {/* Platform Admin Delete Restaurant Action */}
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-rose)', border: '1px solid rgba(244, 63, 94, 0.3)' }}
+                    onClick={() => openDeleteModal(item)}
+                    title={t('clients.deleteButton')}
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             );
           })
         )}
       </div>
+
+      {/* Confirmation Modal for Restaurant Deletion */}
+      {deletingTenant && (
+        <div 
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            background: 'rgba(0,0,0,0.75)', 
+            backdropFilter: 'blur(4px)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 9999, 
+            padding: '1rem' 
+          }} 
+          dir={direction}
+        >
+          <div className="glass-card" style={{ maxWidth: '520px', width: '100%', border: '1px solid var(--accent-rose)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-rose)' }}>
+                <AlertTriangle size={22} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }}>{t('clients.confirmDeleteTitle')}</h3>
+              </div>
+              <button onClick={closeDeleteModal} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.25rem', lineHeight: 1.5 }}>
+              {t('clients.confirmDeleteNotice', { name: deletingTenant.name, id: deletingTenant.id.slice(0, 8) })}
+              <br />
+              <strong style={{ color: 'var(--accent-rose)' }}>{t('clients.dangerZoneDesc', { name: deletingTenant.name, id: deletingTenant.id.slice(0, 8) })}</strong>
+            </p>
+
+            {deleteError && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid var(--accent-rose)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-rose)', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                {deleteError}
+              </div>
+            )}
+
+            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+              <label className="form-label" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                {t('clients.typeToConfirm', { name: deletingTenant.name })}
+              </label>
+              <input 
+                type="text" 
+                className="form-input" 
+                value={typedConfirmName}
+                onChange={(e) => setTypedConfirmName(e.target.value)}
+                placeholder={t('clients.typePlaceholder', { name: deletingTenant.name })}
+                style={{ width: '100%' }}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button className="btn btn-secondary" onClick={closeDeleteModal} disabled={isDeleting}>
+                {t('common.cancel')}
+              </button>
+              <button 
+                className="btn" 
+                style={{ 
+                  background: typedConfirmName === deletingTenant.name ? 'var(--accent-rose)' : 'rgba(239,68,68,0.3)', 
+                  color: '#fff', 
+                  cursor: typedConfirmName === deletingTenant.name ? 'pointer' : 'not-allowed' 
+                }}
+                disabled={typedConfirmName !== deletingTenant.name || isDeleting}
+                onClick={handleConfirmDelete}
+              >
+                {isDeleting ? t('clients.deleting') : t('clients.deleteConfirmButton')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -305,6 +305,8 @@
     "disconnect": "فصل الحساب",
     "successConnected": "تم ربط حساب إنستغرام بنجاح.",
     "oauthError": "خطأ في المصادقة: فشل الربط ({error}). يرجى المحاولة مرة أخرى.",
+    "alreadyLinkedError": "حساب Instagram هذا مرتبط بالفعل بمطعم آخر: {restaurantName}. افصل الحساب من المطعم الحالي أولاً.",
+    "tenantAlreadyHasAccountError": "هذا المطعم مرتبط بالفعل بحساب Instagram آخر. افصل الحساب الحالي أولاً.",
     "officialIgLogin": "تسجيل دخول إنستغرام الرسمي و Graph API",
     "directLoginFlow": "مسار تسجيل الدخول المباشر لإنستغرام",
     "directLoginDesc": "ربط حساب إنستغرام الاحترافي (أعمال أو صانع محتوى) مباشرة ببياناتك.",
