@@ -132,14 +132,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (seq === fetchSeqRef.current) {
         clearState();
-        await supabaseFrontend.auth.signOut();
+        if (res.status === 403) {
+          await supabaseFrontend.auth.signOut();
+        }
       }
       return false;
     } catch (err) {
       console.error('Failed to load server auth context:', err);
       if (seq === fetchSeqRef.current) {
         clearState();
-        await supabaseFrontend.auth.signOut();
       }
       return false;
     } finally {
@@ -152,15 +153,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let isMounted = true;
 
-    fetchAuthContext();
+    const { data: { subscription } } = supabaseFrontend.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
 
-    const { data: { subscription } } = supabaseFrontend.auth.onAuthStateChange(async (event) => {
-      if (isMounted) {
-        if (event === 'SIGNED_OUT') {
+      if (event === 'SIGNED_OUT' || (event === 'INITIAL_SESSION' && !session)) {
+        clearState();
+        setIsLoading(false);
+      } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (session) {
+          await fetchAuthContext();
+        } else {
           clearState();
           setIsLoading(false);
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          await fetchAuthContext();
         }
       }
     });
