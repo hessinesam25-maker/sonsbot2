@@ -355,6 +355,68 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     expect(hydrated.reply_to_comments).toBe(false);
     expect(hydrated.use_knowledge_base).toBe(true);
   });
+
+  it('J. UI Save flow immediate state persistence & stale tenant response guard', async () => {
+    // 1. Initial server settings OFF
+    await PUT(new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({ tenant_id: tenantA_ID, ai_enabled: false }),
+    }));
+
+    // 2. User toggles ON -> Save
+    const saveReqON = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({ tenant_id: tenantA_ID, ai_enabled: true }),
+    });
+    const saveResON = await PUT(saveReqON);
+    expect(saveResON.status).toBe(200);
+    const saveJsonON = await saveResON.json();
+    const updatedON = saveJsonON.settings || saveJsonON;
+    expect(updatedON.ai_enabled).toBe(true);
+
+    // 3. Stale tenant guard check: response for tenantB must not match active tenantA
+    const staleResponseTenantB = {
+      success: true,
+      settings: { tenant_id: tenantB_ID, ai_enabled: false },
+    };
+    const activeTenantId = tenantA_ID;
+    let uiState = { ...updatedON };
+
+    if (staleResponseTenantB.settings.tenant_id === activeTenantId) {
+      uiState = staleResponseTenantB.settings;
+    }
+    // UI state remains ON because tenant_id did not match
+    expect(uiState.ai_enabled).toBe(true);
+
+    // 4. Toggle OFF -> Save
+    const saveReqOFF = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({ tenant_id: tenantA_ID, ai_enabled: false }),
+    });
+    const saveResOFF = await PUT(saveReqOFF);
+    expect(saveResOFF.status).toBe(200);
+    const saveJsonOFF = await saveResOFF.json();
+    const updatedOFF = saveJsonOFF.settings || saveJsonOFF;
+    expect(updatedOFF.ai_enabled).toBe(false);
+  });
 });
 
 

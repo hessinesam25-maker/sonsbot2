@@ -108,7 +108,9 @@ export default function AISettingsPage() {
 
       const resData = await res.json();
       const updated = resData.settings || resData;
-      if (updated) setSettings(updated);
+      if (updated && updated.tenant_id === selectedTenantId) {
+        setSettings(updated);
+      }
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3500);
     } catch (err: any) {
