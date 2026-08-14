@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyMetaWebhookChallenge, verifyMetaSignature } from '@/lib/security/signatures';
 import { InstagramConnector } from '@/lib/connectors/instagram';
 import { generateAIReply } from '@/lib/ai/engine';
+import { buildTenantAIContext } from '@/lib/ai/tenantContext';
+import { generateDeepSeekReply } from '@/lib/ai/deepseek';
 import { db } from '@/lib/db/store';
 import { getBackendSupabaseClient } from '@/lib/db/client';
 import { sanitizeInput } from '@/lib/security/signatures';
@@ -383,32 +385,70 @@ export async function POST(req: NextRequest) {
           conv.is_manual_takeover = false;
         }
 
-        const isDmAutoReplyEnabled = Boolean(conv.auto_reply_enabled && rules.auto_reply_factual_questions !== false);
+        const aiSettings = await db.getAISettings(authoritativeTenantId);
+        const isAiEnabledForDm = Boolean(conv.auto_reply_enabled && aiSettings.ai_enabled && aiSettings.reply_to_dms);
         const fixedDmReply = (rules.default_dm_reply && rules.default_dm_reply.trim().length > 0) ? rules.default_dm_reply.trim() : null;
+
+        let replyContentToSend: string | null = null;
+        let replySourceType: string = 'fixed_dm_reply';
+
+        if (!conv.human_takeover) {
+          if (isAiEnabledForDm) {
+            try {
+              const aiContext = await buildTenantAIContext({
+                tenantId: authoritativeTenantId,
+                customerMessage: event.content,
+                conversationId: conv.id,
+              });
+
+              const deepSeekRes = await generateDeepSeekReply(aiContext.messages, {
+                maxTokens: aiContext.maxTokens,
+              });
+
+              if (deepSeekRes.success && deepSeekRes.content) {
+                replyContentToSend = deepSeekRes.content;
+                replySourceType = 'deepseek_ai';
+              } else {
+                console.warn('[AI_REPLY_FALLBACK]', `DeepSeek generation failed: ${deepSeekRes.error}. Falling back to static reply.`);
+                await db.addAuditLog({
+                  tenant_id: authoritativeTenantId,
+                  event_type: 'AI_AUTO_REPLY_FALLBACK',
+                  actor_type: 'ai',
+                  details: { conversation_id: conv.id, reason: deepSeekRes.error || 'DeepSeek generation failed' },
+                });
+                replyContentToSend = fixedDmReply;
+              }
+            } catch (err: any) {
+              console.error('[AI_REPLY_EXCEPTION]', err);
+              replyContentToSend = fixedDmReply;
+            }
+          } else if (conv.auto_reply_enabled && rules.auto_reply_factual_questions !== false) {
+            replyContentToSend = fixedDmReply;
+          }
+        }
 
         let blockedReason: string | null = null;
         if (conv.human_takeover) {
           blockedReason = 'Human takeover active on conversation';
-        } else if (!isDmAutoReplyEnabled) {
-          blockedReason = 'DM auto-reply is disabled by tenant settings';
-        } else if (!fixedDmReply) {
-          blockedReason = 'missing_fixed_dm_reply';
+        } else if (!conv.auto_reply_enabled) {
+          blockedReason = 'DM auto-reply disabled on conversation';
+        } else if (!replyContentToSend) {
+          blockedReason = 'No reply content available';
         }
 
-        const autoSendEligible = !conv.human_takeover && isDmAutoReplyEnabled && Boolean(fixedDmReply);
+        const autoSendEligible = !conv.human_takeover && Boolean(replyContentToSend);
 
         console.info('[DM_AUTO_REPLY_DIAGNOSTIC]', JSON.stringify({
           incoming_dm: true,
           customer_message_inserted: Boolean(insertedMsg),
-          dm_auto_reply_enabled: isDmAutoReplyEnabled,
+          dm_auto_reply_enabled: isAiEnabledForDm,
           fixed_reply_configured: Boolean(fixedDmReply),
-          language_detection_required: false,
-          rule_engine_used: false,
+          ai_reply_generated: replySourceType === 'deepseek_ai',
           auto_send_eligible: autoSendEligible,
           blocked_reason: blockedReason,
         }));
 
-        if (autoSendEligible && fixedDmReply) {
+        if (autoSendEligible && replyContentToSend) {
           if (!tokenDecryptionSucceeded || !decryptedToken) {
             console.info('[INSTAGRAM_SEND_DIAGNOSTIC]', JSON.stringify({
               connection_found: true,
@@ -442,7 +482,7 @@ export async function POST(req: NextRequest) {
           // Attempt outgoing message through Instagram Graph API with decrypted token
           const sendResult = await connector.sendDirectMessage({
             recipientId: conv.external_id,
-            content: fixedDmReply,
+            content: replyContentToSend,
             accessToken: decryptedToken,
           });
 
@@ -468,8 +508,8 @@ export async function POST(req: NextRequest) {
               tenant_id: authoritativeTenantId,
               sender_type: 'ai',
               external_message_id: sendResult.messageId,
-              content: fixedDmReply,
-              sanitized_content: fixedDmReply,
+              content: replyContentToSend,
+              sanitized_content: replyContentToSend,
               ai_confidence: 1.0,
               status: 'auto_replied',
             });
@@ -483,10 +523,10 @@ export async function POST(req: NextRequest) {
               tenant_id: authoritativeTenantId,
               event_type: 'AI_AUTO_REPLY_SENT',
               actor_type: 'ai',
-              details: { conversation_id: conv.id, type: 'fixed_dm_reply' },
+              details: { conversation_id: conv.id, type: replySourceType },
             });
           } else {
-            // Outbound send failed: record audit log, but do NOT falsely store auto_replied in DB
+            // Outbound send failed: record audit log
             await db.addAuditLog({
               tenant_id: authoritativeTenantId,
               event_type: 'AI_AUTO_REPLY_FAILED',
@@ -514,11 +554,40 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const aiResponse = generateAIReply(sanitizedText, 'comment', kb, menu, rules);
-        let isAutoReplied = false;
-        let replyContent = aiResponse.suggestedReply;
+        const aiSettings = await db.getAISettings(authoritativeTenantId);
+        const isAiEnabledForComments = Boolean(aiSettings.ai_enabled && aiSettings.reply_to_comments);
 
-        if (decryptedToken && aiResponse.isSafeForAutoReply && !aiResponse.requiresHumanReview) {
+        let isAutoReplied = false;
+        let replyContent: string | undefined = undefined;
+        let classification: any = 'neutral';
+
+        if (isAiEnabledForComments) {
+          try {
+            const aiContext = await buildTenantAIContext({
+              tenantId: authoritativeTenantId,
+              customerMessage: event.content,
+            });
+
+            const deepSeekRes = await generateDeepSeekReply(aiContext.messages, {
+              maxTokens: aiContext.maxTokens,
+            });
+
+            if (deepSeekRes.success && deepSeekRes.content) {
+              replyContent = deepSeekRes.content;
+              classification = 'question';
+            }
+          } catch (err) {
+            console.warn('[COMMENT_AI_FALLBACK_WARN]', err);
+          }
+        }
+
+        if (!replyContent) {
+          const aiResponse = generateAIReply(sanitizedText, 'comment', kb, menu, rules);
+          replyContent = aiResponse.suggestedReply;
+          classification = aiResponse.classification;
+        }
+
+        if (decryptedToken && replyContent) {
           const sendResult = await connector.sendCommentReply({
             commentId: event.externalId,
             content: replyContent,
@@ -538,10 +607,10 @@ export async function POST(req: NextRequest) {
           media_type: 'post',
           author_username: event.senderName,
           content: event.content,
-          classification: aiResponse.classification,
+          classification,
           auto_replied: isAutoReplied,
           reply_content: isAutoReplied ? replyContent : undefined,
-          is_hidden: aiResponse.classification === 'spam' && rules.hide_spam,
+          is_hidden: classification === 'spam' && rules.hide_spam,
         });
 
         console.info('[WEBHOOK_EVENT_DIAGNOSTIC]', JSON.stringify({
@@ -561,7 +630,7 @@ export async function POST(req: NextRequest) {
           tenant_id: authoritativeTenantId,
           event_type: 'COMMENT_PROCESSED',
           actor_type: 'webhook',
-          details: { comment_id: event.externalId, classification: aiResponse.classification, auto_replied: isAutoReplied },
+          details: { comment_id: event.externalId, classification, auto_replied: isAutoReplied },
         });
       }
     }
