@@ -386,7 +386,8 @@ export async function POST(req: NextRequest) {
         }
 
         const aiSettings = await db.getAISettings(authoritativeTenantId);
-        const isAiEnabledForDm = Boolean(conv.auto_reply_enabled && aiSettings.ai_enabled && aiSettings.reply_to_dms);
+        const isAiMasterOn = aiSettings.ai_enabled === true;
+        const isAiEnabledForDm = Boolean(isAiMasterOn && conv.auto_reply_enabled && aiSettings.reply_to_dms);
         
         const staticDmEnabled = rules.static_dm_enabled !== undefined && rules.static_dm_enabled !== null 
           ? Boolean(rules.static_dm_enabled) 
@@ -569,7 +570,8 @@ export async function POST(req: NextRequest) {
         }
 
         const aiSettings = await db.getAISettings(authoritativeTenantId);
-        const isAiEnabledForComments = Boolean(aiSettings.ai_enabled && aiSettings.reply_to_comments);
+        const isAiMasterOn = aiSettings.ai_enabled === true;
+        const isAiEnabledForComments = Boolean(isAiMasterOn && aiSettings.reply_to_comments);
 
         const fixedCommentReply = (rules.default_comment_reply && rules.default_comment_reply.trim().length > 0) 
           ? rules.default_comment_reply.trim() 

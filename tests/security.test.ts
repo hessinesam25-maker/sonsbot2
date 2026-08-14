@@ -165,7 +165,8 @@ describe('Security, Token Encryption & Key Audit Test Suite', () => {
       const res = await PUT(req);
       expect(res.status).toBe(200);
       const json = await res.json();
-      expect(json.ai_enabled).toBe(true);
+      const settingsObj = json.settings || json;
+      expect(settingsObj.ai_enabled).toBe(true);
     });
 
     it('automation rules API update and persistence succeeds for authorized caller', async () => {
@@ -191,7 +192,8 @@ describe('Security, Token Encryption & Key Audit Test Suite', () => {
       const res = await PUT(req);
       expect(res.status).toBe(200);
       const json = await res.json();
-      expect(json.static_dm_enabled).toBe(true);
+      const rulesObj = json.rules || json;
+      expect(rulesObj.static_dm_enabled).toBe(true);
     });
 
     it('/api/rules cross-tenant write returns 403 Forbidden', async () => {

@@ -26,6 +26,10 @@ export async function buildTenantAIContext(params: {
   // 1. Load tenant AI Settings
   const settings = await db.getAISettings(tenantId);
 
+  if (settings.ai_enabled !== true) {
+    throw new Error(`Master AI toggle is disabled for tenant ${tenantId}. DeepSeek AI provider execution is forbidden.`);
+  }
+
   // 2. Load tenant Knowledge Base & Menu
   const kb = await db.getKnowledgeBase(tenantId);
   const menu = await db.getMenu(tenantId);
