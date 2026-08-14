@@ -185,6 +185,73 @@ describe('Automation Rules & Webhook Isolation Test Suite', () => {
       expect(payloadSent.auto_reply_factual_questions).toBeUndefined();
       expect(payloadSent.auto_reply_positive_comments).toBeUndefined();
     });
+
+    it('REGRESSION: strips camelCase tenantId and non-DB columns before passing payload to DB store', async () => {
+      const updateSpy = vi.spyOn(db, 'updateAutomationRules').mockImplementation(async (updates: any) => ({
+        id: 'rules_sanitized',
+        tenant_id: tenantA,
+        ...updates,
+      }));
+
+      const req = new NextRequest('http://localhost:3000/api/rules', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer test_token',
+          'x-test-role': 'owner',
+          'x-test-tenant-id': tenantA,
+        },
+        body: JSON.stringify({
+          tenantId: tenantA,
+          tenant_id: tenantA,
+          static_dm_enabled: true,
+          default_dm_reply: 'Safe DM text',
+          unrecognized_param: 'should_be_stripped',
+        } as any),
+      });
+
+      const res = await putRulesApi(req);
+      expect(res.status).toBe(200);
+      const passedPayload = updateSpy.mock.calls[0][0] as any;
+      expect(passedPayload.tenantId).toBeUndefined();
+      expect(passedPayload.unrecognized_param).toBeUndefined();
+      expect(passedPayload.static_dm_enabled).toBe(true);
+      expect(passedPayload.default_dm_reply).toBe('Safe DM text');
+    });
+
+    it('REGRESSION: updateAutomationRules store function filters out non-database columns before calling Supabase upsert', async () => {
+      const mockSupabaseClient = {
+        from: vi.fn().mockReturnThis(),
+        upsert: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({
+          data: {
+            id: 'rules_upserted_001',
+            tenant_id: tenantA,
+            static_dm_enabled: true,
+            static_comment_enabled: false,
+          },
+          error: null,
+        }),
+      };
+
+      const result = await db.updateAutomationRules({
+        tenantId: tenantA,
+        tenant_id: tenantA,
+        static_dm_enabled: true,
+        static_comment_enabled: false,
+        invalid_field_abc: '123',
+      } as any, tenantA, mockSupabaseClient);
+
+      expect(mockSupabaseClient.from).toHaveBeenCalledWith('automation_rules');
+      const upsertArg = mockSupabaseClient.upsert.mock.calls[0][0];
+      expect(upsertArg.tenant_id).toBe(tenantA);
+      expect(upsertArg.static_dm_enabled).toBe(true);
+      expect(upsertArg.static_comment_enabled).toBe(false);
+      expect(upsertArg.tenantId).toBeUndefined();
+      expect(upsertArg.invalid_field_abc).toBeUndefined();
+      expect(result.tenant_id).toBe(tenantA);
+    });
   });
 
   describe('2. Direct Message (DM) Webhook Automation Matrix', () => {

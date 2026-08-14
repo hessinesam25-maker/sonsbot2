@@ -463,15 +463,36 @@ export const db = {
   updateAutomationRules: async (updates: Partial<AutomationRules>, tenantId: string = DEFAULT_TENANT_ID, customClient?: any) => {
     const client = customClient || getBackendSupabaseClient();
     const targetTenantId = updates.tenant_id || tenantId;
-    const payload: any = {
-      ...updates,
+    
+    // Explicit whitelist of valid database columns for automation_rules
+    const dbPayload: Record<string, any> = {
       tenant_id: targetTenantId,
       updated_at: new Date().toISOString(),
     };
 
+    const validColumns = [
+      'min_confidence_score',
+      'max_public_replies_per_hour',
+      'auto_reply_positive_comments',
+      'auto_reply_factual_questions',
+      'never_reply_complaints',
+      'hide_spam',
+      'ai_tone',
+      'default_dm_reply',
+      'static_dm_enabled',
+      'static_comment_enabled',
+      'default_comment_reply',
+    ];
+
+    for (const col of validColumns) {
+      if ((updates as any)[col] !== undefined) {
+        dbPayload[col] = (updates as any)[col];
+      }
+    }
+
     const { data, error } = await client
       .from('automation_rules')
-      .upsert(payload, { onConflict: 'tenant_id' })
+      .upsert(dbPayload, { onConflict: 'tenant_id' })
       .select()
       .single();
 
