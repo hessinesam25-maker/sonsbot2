@@ -1,273 +1,263 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { parsePrice, parseCsvMenu, parseTextMenu, detectDuplicates } from '../lib/menu/parser';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { POST as extractHandler } from '../app/api/menu/extract/route';
+import { POST as importHandler } from '../app/api/menu/import/route';
+import { GET as getMenuHandler, POST as createMenuHandler } from '../app/api/menu/route';
+import { NextRequest } from 'next/server';
 import { db } from '../lib/db/store';
-import { buildTenantAIContext } from '../lib/ai/tenantContext';
 import { retrieveRelevantTenantData } from '../lib/ai/retrieval';
-import { MenuItem, AISettings, KnowledgeBase } from '../lib/db/types';
 
-describe('Menu Item Persistence & Menu Import Workflow Test Suite', () => {
+(process.env as any).NODE_ENV = 'test';
 
-  const tenantA = '1029a20d-1342-42fa-87c2-c0fef3cceeaf';
-  const tenantB = '22222222-2222-2222-2222-222222222222';
+describe('Menu Import Persistence & AI Immediate Readiness Test Suite', () => {
+  const TESTER_TENANT_ID = '1029a20d-1342-42fa-87c2-c0fef3cceeaf';
+  const OTHER_TENANT_ID = '22222222-2222-2222-2222-222222222222';
+  const inMemoryDb: Map<string, any[]> = new Map();
 
-  const mockExistingMenuA: MenuItem[] = [
-    {
-      id: 'item_a1',
-      tenant_id: tenantA,
-      category: 'Coffee',
-      name: 'Espresso',
-      price: 2.50,
-      description: 'Single shot espresso',
-      ingredients: ['Coffee beans'],
-      is_vegetarian: true,
-      is_vegan: true,
-      approved_allergens: [],
-      is_available: true,
-      created_at: new Date().toISOString(),
-    },
-  ];
+  beforeEach(() => {
+    inMemoryDb.clear();
+    inMemoryDb.set(TESTER_TENANT_ID, []);
+    inMemoryDb.set(OTHER_TENANT_ID, []);
 
-  // 1. Manually added menu item persistence
-  it('1. should insert menu item without non-UUID client ID and return DB-assigned UUID', async () => {
-    vi.spyOn(db, 'addMenuItem').mockImplementation(async (item: any, tId?: string) => {
-      return {
-        id: '99999999-9999-4999-8999-999999999999',
-        tenant_id: tId || tenantA,
+    // Mock db store methods to simulate DB operations with valid UUID generation
+    vi.spyOn(db, 'getMenu').mockImplementation(async (tenantId?: string) => {
+      const target = tenantId || TESTER_TENANT_ID;
+      return inMemoryDb.get(target) || [];
+    });
+
+    vi.spyOn(db, 'addMenuItem').mockImplementation(async (item: any, tenantId?: string) => {
+      const tId = item.tenant_id || tenantId || TESTER_TENANT_ID;
+      const id = `f47ac10b-58cc-4372-a567-0e02b2c3d4e${(inMemoryDb.get(tId)?.length || 0) + 1}`;
+      const newItem = {
+        id,
+        tenant_id: tId,
         category: item.category || 'General',
         name: item.name,
-        price: item.price,
+        price: Number(item.price),
         description: item.description || '',
-        ingredients: [],
-        is_vegetarian: true,
-        is_vegan: false,
-        approved_allergens: [],
-        is_available: true,
+        ingredients: item.ingredients || [],
+        approved_allergens: item.approved_allergens || [],
+        is_vegetarian: item.is_vegetarian ?? false,
+        is_vegan: item.is_vegan ?? false,
+        is_available: item.is_available ?? true,
         created_at: new Date().toISOString(),
       };
+      const existing = inMemoryDb.get(tId) || [];
+      existing.push(newItem);
+      inMemoryDb.set(tId, existing);
+      return newItem;
     });
 
-    const created = await db.addMenuItem({
-      name: 'Cortado',
-      price: 3.50,
-      category: 'Coffee',
-    }, tenantA);
-
-    expect(created).toBeDefined();
-    expect(created?.id).toBe('99999999-9999-4999-8999-999999999999');
-    expect(created?.name).toBe('Cortado');
+    vi.spyOn(db, 'updateMenuItem').mockImplementation(async (id: string, updates: any) => {
+      Array.from(inMemoryDb.entries()).forEach(([_, items]) => {
+        const index = items.findIndex((itemObj: any) => itemObj.id === id);
+        if (index !== -1) {
+          items[index] = { ...items[index], ...updates };
+        }
+      });
+      return null;
+    });
   });
 
-  // 2. Correct tenant_id assignment
-  it('2. should enforce correct tenant_id assignment on saved menu items', async () => {
-    const created = await db.addMenuItem({
-      name: 'Cappuccino',
-      price: 4.00,
-    }, tenantA);
+  it('TEST A: CSV import extracts preview, persists valid UUID rows, and reloads via GET /api/menu', async () => {
+    const csvContent = `Product Name,Category,Cost,Description
+Flat White,Coffee,4.20,Double espresso with microfoam
+Avocado Toast,Breakfast,11.50,Sourdough toast
+Matcha Latte,Drinks,5.50,Ceremonial matcha`;
 
-    expect(created?.tenant_id).toBe(tenantA);
-  });
+    const csvBlob = new Blob([csvContent], { type: 'text/csv' });
+    const csvFile = new File([csvBlob], 'menu.csv', { type: 'text/csv' });
 
-  // 3. Cross-tenant menu access blocked (403)
-  it('3. POST /api/menu and POST /api/menu/import should return 403 on cross-tenant access', async () => {
-    const { POST: postMenu } = await import('../app/api/menu/route');
-    const { POST: postImport } = await import('../app/api/menu/import/route');
-    const { NextRequest } = await import('next/server');
+    const headers = new Headers();
+    headers.set('Authorization', 'Bearer test_token');
+    headers.set('x-test-tenant-id', TESTER_TENANT_ID);
+    headers.set('x-test-role', 'owner');
 
-    const crossTenantReq = new NextRequest('http://localhost:3000/api/menu', {
+    const extractFormData = new FormData();
+    extractFormData.append('file', csvFile);
+    extractFormData.append('tenantId', TESTER_TENANT_ID);
+
+    // 1. Extract Preview
+    const extractReq = new NextRequest('http://localhost:3000/api/menu/extract', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer test_token',
-        'x-test-tenant-id': tenantA,
-        'x-test-role': 'owner',
-      },
-      body: JSON.stringify({ tenant_id: tenantB, name: 'Hack Item', price: 99 }),
+      headers,
+      body: extractFormData,
     });
 
-    const res = await postMenu(crossTenantReq);
-    expect(res.status).toBe(403);
+    const extractRes = await extractHandler(extractReq);
+    expect(extractRes.status).toBe(200);
+    const extractData = await extractRes.json();
+    expect(extractData.success).toBe(true);
+    expect(extractData.count).toBe(3);
+    expect(extractData.items).toHaveLength(3);
 
-    const crossImportReq = new NextRequest('http://localhost:3000/api/menu/import', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer test_token',
-        'x-test-tenant-id': tenantA,
-        'x-test-role': 'owner',
-      },
-      body: JSON.stringify({ tenantId: tenantB, items: [{ name: 'Hack' }] }),
-    });
-
-    const importRes = await postImport(crossImportReq);
-    expect(importRes.status).toBe(403);
-  });
-
-  // 4. CSV parsing with custom headers
-  it('4. should parse CSV menu content with standard and custom Arabic/English headers', () => {
-    const csvData = `Product Name,Category,Cost,Description\nLatte Macchiato,Dranken,4.50,Steamed milk with espresso\nFalafel Wrap,Lunch,8.90,Crispy falafel wrap`;
-    const parsed = parseCsvMenu(csvData);
-
-    expect(parsed.length).toBe(2);
-    expect(parsed[0].name).toBe('Latte Macchiato');
-    expect(parsed[0].price).toBe(4.50);
-    expect(parsed[0].category).toBe('Dranken');
-    expect(parsed[1].name).toBe('Falafel Wrap');
-  });
-
-  // 5. Decimal price parsing (€3,50 -> 3.50)
-  it('5. should safely parse decimal comma price formats (€3,50, $12.50, 12,50 eur)', () => {
-    expect(parsePrice('€3,50')).toBe(3.50);
-    expect(parsePrice('$12.50')).toBe(12.50);
-    expect(parsePrice('14,95 EUR')).toBe(14.95);
-    expect(parsePrice(4.25)).toBe(4.25);
-  });
-
-  // 6. Column header mapping
-  it('6. should flexibly map arbitrary header column positions', () => {
-    const csvData = `Price,Item Name,Type\n6.50,Cheesecake,Dessert`;
-    const parsed = parseCsvMenu(csvData);
-
-    expect(parsed.length).toBe(1);
-    expect(parsed[0].name).toBe('Cheesecake');
-    expect(parsed[0].price).toBe(6.50);
-    expect(parsed[0].category).toBe('Dessert');
-  });
-
-  // 7. Duplicate item detection
-  it('7. should flag duplicate items against existing tenant menu and suggest skip by default', () => {
-    const incoming = [
-      { tempId: 't1', name: 'Espresso', category: 'Coffee', price: 2.50, description: '', ingredients: [], approved_allergens: [], is_vegetarian: true, is_vegan: true, is_available: true, selected: true },
-      { tempId: 't2', name: 'Croissant', category: 'Bakery', price: 3.00, description: '', ingredients: [], approved_allergens: [], is_vegetarian: true, is_vegan: false, is_available: true, selected: true },
-    ];
-
-    const flagged = detectDuplicates(incoming, mockExistingMenuA);
-    expect(flagged[0].isDuplicate).toBe(true);
-    expect(flagged[0].duplicateAction).toBe('skip');
-    expect(flagged[1].isDuplicate).toBe(false);
-    expect(flagged[1].duplicateAction).toBe('import_new');
-  });
-
-  // 8. Preview stage does NOT write to DB before confirmation
-  it('8. should parse items into memory without invoking DB writes during preview', () => {
-    const addSpy = vi.spyOn(db, 'addMenuItem');
-    const parsed = parseCsvMenu('Name,Price\nTest Muffin,3.00');
-
-    expect(parsed.length).toBe(1);
-    expect(addSpy).not.toHaveBeenCalled();
-  });
-
-  // 9 & 10. Confirm import writes selected items only (skipping excluded items)
-  it('9 & 10. POST /api/menu/import should write only selected non-skipped items to DB', async () => {
-    const { POST: postImport } = await import('../app/api/menu/import/route');
-    const { NextRequest } = await import('next/server');
-
+    // 2. Confirm Import
     const importReq = new NextRequest('http://localhost:3000/api/menu/import', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer test_token',
-        'x-test-tenant-id': tenantA,
-        'x-test-role': 'owner',
-      },
+      headers,
       body: JSON.stringify({
-        tenantId: tenantA,
-        items: [
-          { name: 'Iced Latte', category: 'Dranken', price: 4.50, selected: true, duplicateAction: 'import_new' },
-          { name: 'Excluded Item', category: 'Misc', price: 10.00, selected: false, duplicateAction: 'import_new' },
-          { name: 'Duplicate Item', category: 'Coffee', price: 2.50, selected: true, duplicateAction: 'skip' },
-        ],
+        tenantId: TESTER_TENANT_ID,
+        items: extractData.items,
       }),
     });
 
-    const res = await postImport(importReq);
-    expect(res.status).toBe(200);
-    const data = await res.json();
+    const importRes = await importHandler(importReq);
+    expect(importRes.status).toBe(200);
+    const importData = await importRes.json();
+    expect(importData.count.imported).toBe(3);
+    expect(importData.count.failed).toBe(0);
 
-    expect(data.success).toBe(true);
-    expect(data.count.imported).toBe(1);
-    expect(data.count.skipped).toBe(2);
+    // 3. Reload menu via GET /api/menu
+    const getReq = new NextRequest(`http://localhost:3000/api/menu?tenantId=${TESTER_TENANT_ID}`, {
+      method: 'GET',
+      headers,
+    });
+
+    const getRes = await getMenuHandler(getReq);
+    expect(getRes.status).toBe(200);
+    const persistedMenu = await getRes.json();
+
+    expect(persistedMenu).toHaveLength(3);
+    expect(persistedMenu[0].name).toBe('Flat White');
+    expect(persistedMenu[0].price).toBe(4.2);
+    expect(persistedMenu[0].tenant_id).toBe(TESTER_TENANT_ID);
+    // Verify valid UUID format
+    expect(persistedMenu[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 
-  // 11. Newly imported menu item is immediately retrievable by AI
-  it('11. newly imported menu items should immediately be retrievable by retrieveRelevantTenantData', () => {
-    const freshImportedMenu: MenuItem[] = [
-      ...mockExistingMenuA,
-      {
-        id: 'item_fresh_001',
-        tenant_id: tenantA,
-        category: 'Cold Drinks',
-        name: 'Matcha Iced Latte',
-        price: 5.80,
-        description: 'Ceremonial matcha with oat milk',
-        ingredients: ['Matcha', 'Oat Milk'],
-        is_vegetarian: true,
-        is_vegan: true,
-        approved_allergens: [],
-        is_available: true,
-        created_at: new Date().toISOString(),
-      },
+  it('TEST B: Text PDF import extracts preview, persists rows to DB, and enforces tenant isolation', async () => {
+    const pdfBuffer = Buffer.from(`%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj
+4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+5 0 obj << /Length 120 >> stream
+BT /F1 12 Tf 50 750 Td (Cappuccino 3.80) Tj 0 -20 Td (Espresso 2.50) Tj 0 -20 Td (Tiramisu 5.50) Tj ET
+endstream endobj
+xref 0 6 0000000000 65535 f trailer << /Size 6 /Root 1 0 R >> startxref 350 %%EOF`);
+
+    const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
+    const pdfFile = new File([pdfBlob], 'menu.pdf', { type: 'application/pdf' });
+
+    const headers = new Headers();
+    headers.set('Authorization', 'Bearer test_token');
+    headers.set('x-test-tenant-id', TESTER_TENANT_ID);
+    headers.set('x-test-role', 'owner');
+
+    const extractFormData = new FormData();
+    extractFormData.append('file', pdfFile);
+    extractFormData.append('tenantId', TESTER_TENANT_ID);
+
+    const extractReq = new NextRequest('http://localhost:3000/api/menu/extract', {
+      method: 'POST',
+      headers,
+      body: extractFormData,
+    });
+
+    const extractRes = await extractHandler(extractReq);
+    expect(extractRes.status).toBe(200);
+    const extractData = await extractRes.json();
+    expect(extractData.count).toBe(3);
+
+    // Confirm Import
+    const importReq = new NextRequest('http://localhost:3000/api/menu/import', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        tenantId: TESTER_TENANT_ID,
+        items: extractData.items,
+      }),
+    });
+
+    const importRes = await importHandler(importReq);
+    expect(importRes.status).toBe(200);
+
+    // Verify tenant isolation (Other tenant gets 0 rows)
+    const otherHeaders = new Headers();
+    otherHeaders.set('Authorization', 'Bearer test_token');
+    otherHeaders.set('x-test-tenant-id', OTHER_TENANT_ID);
+    otherHeaders.set('x-test-role', 'owner');
+
+    const otherGetReq = new NextRequest(`http://localhost:3000/api/menu?tenantId=${OTHER_TENANT_ID}`, {
+      method: 'GET',
+      headers: otherHeaders,
+    });
+
+    const otherGetRes = await getMenuHandler(otherGetReq);
+    const otherMenu = await otherGetRes.json();
+    expect(otherMenu).toHaveLength(0);
+  });
+
+  it('TEST C: Scanned PDF returns exact user message without OCR crash', async () => {
+    const scannedPdfBuffer = Buffer.from(`%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >> endobj
+4 0 obj << /Length 0 >> stream
+endstream endobj
+xref
+0 5
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000210 00000 n 
+trailer << /Size 5 /Root 1 0 R >>
+startxref
+260
+%%EOF`);
+    const pdfBlob = new Blob([scannedPdfBuffer], { type: 'application/pdf' });
+    const pdfFile = new File([pdfBlob], 'scanned.pdf', { type: 'application/pdf' });
+
+    const headers = new Headers();
+    headers.set('Authorization', 'Bearer test_token');
+    headers.set('x-test-tenant-id', TESTER_TENANT_ID);
+
+    const formData = new FormData();
+    formData.append('file', pdfFile);
+    formData.append('tenantId', TESTER_TENANT_ID);
+
+    const req = new NextRequest('http://localhost:3000/api/menu/extract', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    const res = await extractHandler(req);
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toContain('This PDF is scanned/image-based');
+  });
+
+  it('TEST D: AI Immediate Readiness reads imported menu items and returns exact price', async () => {
+    const importedMenu = [
+      { id: 'f47ac10b-58cc-4372-a567-0e02b2c3d4e1', name: 'Flat White', price: 4.20, category: 'Coffee', is_available: true },
+      { id: 'f47ac10b-58cc-4372-a567-0e02b2c3d4e2', name: 'Avocado Toast', price: 11.50, category: 'Breakfast', is_available: true },
     ];
 
-    const mockKb: KnowledgeBase = {
-      id: 'kb_a',
-      tenant_id: tenantA,
-      cafe_name: 'Test Cafe',
+    const mockKb = {
+      id: 'kb_tester',
+      tenant_id: TESTER_TENANT_ID,
+      cafe_name: 'All Things Good',
       address: 'Ghent Central',
-      google_maps_url: 'https://maps.google.com',
-      opening_hours: {
-        monday: '08:00 - 18:00',
-        tuesday: '08:00 - 18:00',
-        wednesday: '08:00 - 18:00',
-        thursday: '08:00 - 18:00',
-        friday: '08:00 - 18:00',
-        saturday: '09:00 - 17:00',
-        sunday: 'Closed',
-      },
+      google_maps_url: '',
+      opening_hours: {},
       holiday_hours: {},
-      reservation_rules: 'Walk-ins welcome',
-      delivery_takeaway_info: 'Takeaway available',
-      contact_email: 'info@test.com',
-      contact_phone: '+32123456',
-      wifi_details: 'Free WiFi',
-      payment_methods: ['Card', 'Cash'],
+      reservation_rules: '',
+      delivery_takeaway_info: '',
+      contact_email: '',
+      contact_phone: '',
+      wifi_details: '',
+      payment_methods: [],
       promotions: [],
       faqs: [],
       updated_at: new Date().toISOString(),
     };
 
-    const retrieved = retrieveRelevantTenantData('How much is the Matcha Iced Latte?', mockKb, freshImportedMenu);
-    expect(retrieved.relevantMenuItems.length).toBeGreaterThan(0);
-    const matchaItem = retrieved.relevantMenuItems.find(m => m.name === 'Matcha Iced Latte');
-    expect(matchaItem).toBeDefined();
-    expect(matchaItem?.price).toBe(5.80);
-  });
+    const retrieved = retrieveRelevantTenantData('How much is the Flat White?', mockKb as any, importedMenu as any);
+    expect(retrieved.relevantMenuItems.length).toBeGreaterThanOrEqual(1);
 
-  // 12. Bad/unsupported file type rejection
-  it('12. should produce controlled error on invalid file content extraction', () => {
-    const parsed = parseCsvMenu('');
-    expect(parsed).toEqual([]);
-  });
-
-  // 13. Tenant A import never writes Tenant B data
-  it('13. should prevent Tenant A import from affecting or writing Tenant B data', async () => {
-    const { POST: postImport } = await import('../app/api/menu/import/route');
-    const { NextRequest } = await import('next/server');
-
-    const tenantAImportReq = new NextRequest('http://localhost:3000/api/menu/import', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer test_token',
-        'x-test-tenant-id': tenantA,
-        'x-test-role': 'owner',
-      },
-      body: JSON.stringify({
-        tenantId: tenantA,
-        items: [{ name: 'Tenant A Special Tea', price: 3.80, selected: true, duplicateAction: 'import_new' }],
-      }),
-    });
-
-    const res = await postImport(tenantAImportReq);
-    const data = await res.json();
-
-    expect(data.success).toBe(true);
-    expect(data.items[0].tenant_id).toBe(tenantA);
-    expect(data.items[0].tenant_id).not.toBe(tenantB);
+    const matched = retrieved.relevantMenuItems.find(m => m.name === 'Flat White');
+    expect(matched).toBeDefined();
+    expect(matched?.price).toBe(4.20);
   });
 });

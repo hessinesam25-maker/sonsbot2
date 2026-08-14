@@ -93,7 +93,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'tenantId parameter is required' }, { status: 400 });
     }
 
-    const menu = await db.getMenu(tenantId);
+    const ssrClient = createServerSupabaseClient(req);
+    const backend = getBackendSupabaseClient();
+    const dbClient = backend;
+
+    const menu = await db.getMenu(tenantId, dbClient);
     return NextResponse.json(menu);
   } catch (error: any) {
     console.error('Error fetching menu items:', error);
@@ -117,7 +121,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 });
     }
 
-    const newItem = await db.addMenuItem(body, targetTenantId);
+    const ssrClient = createServerSupabaseClient(req);
+    const backend = getBackendSupabaseClient();
+    const dbClient = backend;
+
+    const newItem = await db.addMenuItem(body, targetTenantId, dbClient);
 
     if (!newItem) {
       return NextResponse.json({ error: 'Failed to create menu item in database.' }, { status: 500 });
@@ -151,7 +159,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: authResult.error }, { status: authResult.status });
     }
 
-    const updated = await db.updateMenuItem(id, updates);
+    const ssrClient = createServerSupabaseClient(req);
+    const backend = getBackendSupabaseClient();
+    const dbClient = backend;
+
+    const updated = await db.updateMenuItem(id, updates, dbClient);
 
     await db.addAuditLog({
       event_type: 'MENU_ITEM_UPDATED',
@@ -182,7 +194,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: authResult.error }, { status: authResult.status });
     }
 
-    await db.deleteMenuItem(id);
+    const ssrClient = createServerSupabaseClient(req);
+    const backend = getBackendSupabaseClient();
+    const dbClient = backend;
+
+    await db.deleteMenuItem(id, dbClient);
 
     await db.addAuditLog({
       event_type: 'MENU_ITEM_DELETED',

@@ -21,7 +21,12 @@ export default function MenuManagerPage() {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const data = await db.getMenu(selectedTenantId);
+      const res = await fetch(`/api/menu?tenantId=${selectedTenantId}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to fetch menu items');
+      }
+      const data = await res.json();
       setItems(data || []);
     } catch (err: any) {
       console.error('Error fetching menu items:', err);

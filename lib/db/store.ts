@@ -334,17 +334,23 @@ export const db = {
   },
 
   // Real Supabase Menu Items
-  getMenu: async (tenantId: string = DEFAULT_TENANT_ID): Promise<MenuItem[]> => {
-    const client = getDbClient();
-    const { data } = await client
+  getMenu: async (tenantId: string = DEFAULT_TENANT_ID, customClient?: any): Promise<MenuItem[]> => {
+    const client = customClient || getDbClient();
+    if (!tenantId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(tenantId)) {
+      return [];
+    }
+    const { data, error } = await client
       .from('menu_items')
       .select('*')
       .eq('tenant_id', tenantId);
+    if (error) {
+      console.error('[DB_MENU_GET_ERROR]', error);
+    }
     return data || [];
   },
 
-  addMenuItem: async (item: Partial<MenuItem>, tenantId: string = DEFAULT_TENANT_ID) => {
-    const backend = getDbClient();
+  addMenuItem: async (item: Partial<MenuItem>, tenantId: string = DEFAULT_TENANT_ID, customClient?: any) => {
+    const client = customClient || getDbClient();
     const targetTenantId = item.tenant_id || tenantId;
 
     const payload: Record<string, any> = {
@@ -364,7 +370,7 @@ export const db = {
       payload.id = item.id;
     }
 
-    const { data, error } = await backend
+    const { data, error } = await client
       .from('menu_items')
       .insert(payload)
       .select()
@@ -376,22 +382,25 @@ export const db = {
     return data;
   },
 
-  updateMenuItem: async (id: string, updates: Partial<MenuItem>) => {
-    const backend = getDbClient();
+  updateMenuItem: async (id: string, updates: Partial<MenuItem>, customClient?: any) => {
+    const client = customClient || getDbClient();
     const payload = { ...updates };
     delete (payload as any).id;
-    const { data } = await backend
+    const { data, error } = await client
       .from('menu_items')
       .update(payload)
       .eq('id', id)
       .select()
       .single();
+    if (error) {
+      console.error('[DB_MENU_UPDATE_ERROR]', error);
+    }
     return data;
   },
 
-  deleteMenuItem: async (id: string) => {
-    const backend = getDbClient();
-    await backend.from('menu_items').delete().eq('id', id);
+  deleteMenuItem: async (id: string, customClient?: any) => {
+    const client = customClient || getDbClient();
+    await client.from('menu_items').delete().eq('id', id);
   },
 
   // Real Supabase Automation Rules
