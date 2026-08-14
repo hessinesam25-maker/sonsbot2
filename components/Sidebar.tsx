@@ -17,20 +17,17 @@ export const Sidebar: React.FC = () => {
   const { user, tenant, isPlatformAdmin, role, selectedTenantId, allowedTenants, switchTenant, logout } = useAuth();
   const { t, direction } = useLanguage();
 
-  const navItems = [
-    { href: '/dashboard', label: t('nav.overview'), icon: BarChart3 },
-    { href: '/dashboard/inbox', label: t('nav.inbox'), icon: Inbox },
-    { href: '/dashboard/comments', label: t('nav.comments'), icon: MessageSquare },
+  const allNavItems = [
     { href: '/dashboard/ai-settings', label: t('nav.aiSettings'), icon: Bot },
     { href: '/dashboard/rules', label: t('nav.rules'), icon: Sliders },
     { href: '/dashboard/knowledge', label: t('nav.knowledge'), icon: BookOpen },
     { href: '/dashboard/menu', label: t('nav.menu'), icon: Utensils },
-    { href: '/dashboard/content', label: t('nav.content'), icon: Image },
-    { href: '/dashboard/analytics', label: t('nav.analytics'), icon: TrendingUp },
     { href: '/dashboard/integrations', label: t('nav.integrations'), icon: Share2 },
     { href: '/dashboard/google', label: t('nav.google'), icon: MapPin },
-    { href: '/dashboard/clients', label: t('nav.clients'), icon: Building2 },
+    { href: '/dashboard/clients', label: t('nav.clients'), icon: Building2, adminOnly: true },
   ];
+
+  const navItems = allNavItems.filter(item => !item.adminOnly || isPlatformAdmin);
 
   const handleSignOut = async () => {
     await logout();

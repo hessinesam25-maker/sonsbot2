@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { TopHeader } from '@/components/TopHeader';
-import { Bot, Save, CheckCircle2, AlertCircle, Sparkles, MessageSquare, BookOpen, ShieldAlert } from 'lucide-react';
+import { Bot, Save, CheckCircle2, AlertCircle, Sparkles, MessageSquare, BookOpen, ShieldAlert, Send } from 'lucide-react';
 import { AISettings, AITone, AIReplyLength, AIEmojiUsage, AIFallbackBehavior } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -33,6 +33,16 @@ export default function AISettingsPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [testMessage, setTestMessage] = useState<string>('');
+  const [testLoading, setTestLoading] = useState<boolean>(false);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    reply?: string | null;
+    model?: string;
+    retrievedSources?: { knowledgeBase: boolean; menuItemsMatched: number };
+    usage?: { inputTokens: number; outputTokens: number };
+    error?: string;
+  } | null>(null);
   const [igState, setIgState] = useState<import('@/lib/db/types').InstagramConnectionState>({
     connected: false,
     status: 'disconnected',
@@ -123,6 +133,30 @@ export default function AISettingsPage() {
     }
   };
 
+  const handleTestAI = async () => {
+    if (!testMessage.trim() || !selectedTenantId) return;
+    setTestLoading(true);
+    setTestResult(null);
+
+    try {
+      const res = await fetch('/api/ai/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: selectedTenantId, message: testMessage.trim() }),
+      });
+
+      const data = await res.json();
+      setTestResult(data);
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        error: err.message || 'Failed to execute AI test.',
+      });
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
   const restaurantName = tenant?.name || '';
 
   if (authLoading || loading || !selectedTenantId) {
@@ -176,6 +210,12 @@ export default function AISettingsPage() {
       {errorMessage && (
         <div style={{ background: 'rgba(239, 68, 68, 0.2)', border: '1px solid var(--accent-rose)', padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-rose)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <AlertCircle size={18} /> {errorMessage}
+        </div>
+      )}
+
+      {!settings.ai_enabled && (
+        <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid var(--accent-amber)', padding: '0.85rem 1.25rem', borderRadius: 'var(--radius-sm)', color: 'var(--accent-amber)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <AlertCircle size={18} /> AI Auto-Reply is currently disabled. Incoming Instagram messages will receive fixed default replies or require manual review.
         </div>
       )}
 
@@ -368,6 +408,85 @@ export default function AISettingsPage() {
                 {t('aiSettings.fallbackDesc')}
               </p>
             </div>
+          </div>
+        </div>
+
+        {/* Section 4: Safe Production AI Testing Tool */}
+        <div className="glass-card">
+          <div style={{ marginBottom: '1.25rem' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Bot size={18} color="var(--accent-amber)" /> Test AI / اختبار الذكاء الاصطناعي
+            </h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--accent-amber)', marginTop: '0.3rem', fontWeight: 600 }}>
+              {direction === 'rtl'
+                ? 'هذا اختبار فقط ولن يتم إرسال أي رسالة إلى Instagram.'
+                : 'This is a test only. Nothing will be sent to Instagram.'}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <textarea
+                className="form-textarea"
+                rows={3}
+                value={testMessage}
+                onChange={(e) => setTestMessage(e.target.value)}
+                placeholder={direction === 'rtl' ? 'اكتب سؤالاً للتجربة (مثال: ما هي أوقات العمل؟ كم سعر Cappuccino؟)' : 'Type a customer question (e.g. What time do you open? How much is the latte?)'}
+                style={{ width: '100%', fontSize: '0.9rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleTestAI}
+                disabled={testLoading || !testMessage.trim()}
+                style={{ fontSize: '0.88rem' }}
+              >
+                <Send size={15} /> {testLoading ? (direction === 'rtl' ? 'جاري الاختبار...' : 'Testing...') : (direction === 'rtl' ? 'اختبار الرد' : 'Test Reply')}
+              </button>
+            </div>
+
+            {testResult && (
+              <div style={{ marginTop: '0.75rem', background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: testResult.success ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: testResult.success ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                    {testResult.success ? (direction === 'rtl' ? 'النتيجة المولدة:' : 'Generated AI Reply:') : (direction === 'rtl' ? 'خطأ في الاختبار:' : 'Test Error:')}
+                  </span>
+                  {testResult.model && (
+                    <span className="badge badge-open" style={{ fontSize: '0.72rem' }}>
+                      Model: {testResult.model}
+                    </span>
+                  )}
+                </div>
+
+                {testResult.success && testResult.reply ? (
+                  <div style={{ background: 'rgba(255,255,255,0.05)', padding: '0.85rem', borderRadius: '4px', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '0.75rem', color: '#fff', whiteSpace: 'pre-wrap' }}>
+                    {testResult.reply}
+                  </div>
+                ) : (
+                  <div style={{ color: 'var(--accent-rose)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                    {testResult.error || 'AI generation returned an error.'}
+                  </div>
+                )}
+
+                {testResult.retrievedSources && (
+                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-secondary)', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span>
+                      KB Used: <strong style={{ color: testResult.retrievedSources.knowledgeBase ? 'var(--accent-emerald)' : 'var(--text-muted)' }}>{testResult.retrievedSources.knowledgeBase ? 'Yes' : 'No'}</strong>
+                    </span>
+                    <span>
+                      Menu Items Matched: <strong style={{ color: testResult.retrievedSources.menuItemsMatched > 0 ? 'var(--accent-indigo)' : 'var(--text-muted)' }}>{testResult.retrievedSources.menuItemsMatched}</strong>
+                    </span>
+                    {testResult.usage && (
+                      <span>
+                        Tokens: <strong style={{ color: '#fff' }}>{testResult.usage.inputTokens} in / {testResult.usage.outputTokens} out</strong>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
