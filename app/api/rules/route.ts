@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/db/supabase-ssr';
 import { getBackendSupabaseClient } from '@/lib/db/client';
 import { db } from '@/lib/db/store';
+import { AutomationRules } from '@/lib/db/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -120,7 +121,42 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Tenant ID required' }, { status: 400 });
     }
 
-    const updated = await db.updateAutomationRules({ ...body, tenant_id: tenantId }, tenantId);
+    // Explicitly build DB payload with valid database columns ONLY (never spread tenantId)
+    const dbPayload: Partial<AutomationRules> = {};
+
+    if (body.static_dm_enabled !== undefined) {
+      dbPayload.static_dm_enabled = Boolean(body.static_dm_enabled);
+    } else if (body.staticDmEnabled !== undefined) {
+      dbPayload.static_dm_enabled = Boolean(body.staticDmEnabled);
+    }
+
+    if (body.static_comment_enabled !== undefined) {
+      dbPayload.static_comment_enabled = Boolean(body.static_comment_enabled);
+    } else if (body.staticCommentEnabled !== undefined) {
+      dbPayload.static_comment_enabled = Boolean(body.staticCommentEnabled);
+    }
+
+    if (body.default_dm_reply !== undefined) {
+      dbPayload.default_dm_reply = body.default_dm_reply;
+    } else if (body.defaultDmReply !== undefined) {
+      dbPayload.default_dm_reply = body.defaultDmReply;
+    }
+
+    if (body.default_comment_reply !== undefined) {
+      dbPayload.default_comment_reply = body.default_comment_reply;
+    } else if (body.defaultCommentReply !== undefined) {
+      dbPayload.default_comment_reply = body.defaultCommentReply;
+    }
+
+    if (body.min_confidence_score !== undefined) dbPayload.min_confidence_score = body.min_confidence_score;
+    if (body.max_public_replies_per_hour !== undefined) dbPayload.max_public_replies_per_hour = body.max_public_replies_per_hour;
+    if (body.auto_reply_positive_comments !== undefined) dbPayload.auto_reply_positive_comments = body.auto_reply_positive_comments;
+    if (body.auto_reply_factual_questions !== undefined) dbPayload.auto_reply_factual_questions = body.auto_reply_factual_questions;
+    if (body.never_reply_complaints !== undefined) dbPayload.never_reply_complaints = body.never_reply_complaints;
+    if (body.hide_spam !== undefined) dbPayload.hide_spam = body.hide_spam;
+    if (body.ai_tone !== undefined) dbPayload.ai_tone = body.ai_tone;
+
+    const updated = await db.updateAutomationRules(dbPayload, tenantId);
 
     await db.addAuditLog({
       tenant_id: tenantId,

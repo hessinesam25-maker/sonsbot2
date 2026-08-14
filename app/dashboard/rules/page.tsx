@@ -89,9 +89,11 @@ export default function RulesPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...rules,
-          tenantId: selectedTenantId,
           tenant_id: selectedTenantId,
+          static_dm_enabled: rules.static_dm_enabled,
+          default_dm_reply: rules.default_dm_reply,
+          static_comment_enabled: rules.static_comment_enabled,
+          default_comment_reply: rules.default_comment_reply,
         }),
       });
 
