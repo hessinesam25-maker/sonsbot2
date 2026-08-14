@@ -5,6 +5,8 @@ import {
 } from './types';
 import { supabaseFrontend, getBackendSupabaseClient } from './client';
 
+export { normalizeText } from '../ai/retrieval';
+
 export const DEFAULT_TENANT_ID = '11111111-1111-1111-1111-111111111111';
 
 const aiSettingsMemoryStore = new Map<string, AISettings>();

@@ -1,20 +1,27 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TopHeader } from '@/components/TopHeader';
-import { Utensils, Plus, Trash2, Edit, Check, AlertCircle, FileUp, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Utensils, Plus, Trash2, Edit, Check, AlertCircle, FileUp, CheckCircle2, ShieldAlert, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import { MenuItem } from '@/lib/db/types';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-import { db } from '@/lib/db/store';
+import { db, normalizeText } from '@/lib/db/store';
 import { parseCsvMenu, parseTextMenu, detectDuplicates, ParsedMenuItem } from '@/lib/menu/parser';
+
+const ITEMS_PER_PAGE = 10;
 
 export default function MenuManagerPage() {
   const { selectedTenantId, tenant } = useAuth();
-  const { t, direction } = useLanguage();
+  const { t, direction, language } = useLanguage();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Search, Category Filter & Pagination State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const fetchMenu = async () => {
     if (!selectedTenantId) return;
@@ -39,6 +46,54 @@ export default function MenuManagerPage() {
   useEffect(() => {
     fetchMenu();
   }, [selectedTenantId]);
+
+  // Reset pagination to page 1 on filter/search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategory]);
+
+  const categories = useMemo(() => {
+    const cats = Array.from(new Set(items.map(i => i.category).filter(Boolean)));
+    return cats.sort();
+  }, [items]);
+
+  // Filter items by Search Query and Category
+  const filteredItems = useMemo(() => {
+    const normQ = normalizeText(searchQuery);
+    return items.filter(item => {
+      // Category Filter
+      if (selectedCategory !== 'ALL' && item.category !== selectedCategory) {
+        return false;
+      }
+      // Search Query
+      if (!normQ) return true;
+
+      const normName = normalizeText(item.name || '');
+      const normCat = normalizeText(item.category || '');
+      const normDesc = normalizeText(item.description || '');
+      const normIngr = Array.isArray(item.ingredients) ? item.ingredients.map(normalizeText).join(' ') : '';
+
+      return (
+        normName.includes(normQ) ||
+        normCat.includes(normQ) ||
+        normDesc.includes(normQ) ||
+        normIngr.includes(normQ)
+      );
+    });
+  }, [items, searchQuery, selectedCategory]);
+
+  // Pagination Calculations
+  const totalItems = filteredItems.length;
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE) || 1;
+  const validCurrentPage = Math.min(Math.max(currentPage, 1), totalPages);
+
+  const paginatedItems = useMemo(() => {
+    const startIdx = (validCurrentPage - 1) * ITEMS_PER_PAGE;
+    return filteredItems.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+  }, [filteredItems, validCurrentPage]);
+
+  const startItemNumber = totalItems === 0 ? 0 : (validCurrentPage - 1) * ITEMS_PER_PAGE + 1;
+  const endItemNumber = Math.min(validCurrentPage * ITEMS_PER_PAGE, totalItems);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newItem, setNewItem] = useState({
@@ -99,27 +154,45 @@ export default function MenuManagerPage() {
   };
 
   const handleToggleAvailability = async (id: string, currentAvailable: boolean) => {
-    setItems(items.map(item => item.id === id ? { ...item, is_available: !currentAvailable } : item));
+    const targetState = !currentAvailable;
+    // Store previous items state for rollback
+    const previousItems = [...items];
+    
+    // Update local state
+    setItems(items.map(item => item.id === id ? { ...item, is_available: targetState } : item));
+
     try {
-      await fetch('/api/menu', {
+      const res = await fetch('/api/menu', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, is_available: !currentAvailable, tenant_id: selectedTenantId }),
+        body: JSON.stringify({ id, is_available: targetState, tenant_id: selectedTenantId }),
       });
-    } catch (err) {
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Failed to update item availability in database.');
+      }
+    } catch (err: any) {
       console.error('Error toggling availability:', err);
-      fetchMenu();
+      // Rollback UI state on failure
+      setItems(previousItems);
+      setErrorMsg(`Failed to update item status: ${err.message || 'Database error'}`);
     }
   };
 
   const handleDeleteItem = async (id: string) => {
     if (!confirm('Are you sure you want to delete this menu item?')) return;
+    const previousItems = [...items];
     setItems(items.filter(i => i.id !== id));
     try {
-      await fetch(`/api/menu?id=${id}&tenantId=${selectedTenantId}`, { method: 'DELETE' });
-    } catch (err) {
+      const res = await fetch(`/api/menu?id=${id}&tenantId=${selectedTenantId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        throw new Error('Failed to delete item');
+      }
+    } catch (err: any) {
       console.error('Error deleting menu item:', err);
-      fetchMenu();
+      setItems(previousItems);
+      setErrorMsg('Failed to delete menu item.');
     }
   };
 
@@ -246,23 +319,55 @@ export default function MenuManagerPage() {
         subtitle={t('menu.subtitle')} 
       />
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        <button 
-          className="btn btn-secondary" 
-          onClick={() => {
-            setImportStep('upload');
-            setParsedItems([]);
-            setImportError(null);
-            setImportResult(null);
-            setShowImportModal(true);
-          }}
-        >
-          <FileUp size={16} /> {t('menu.importMenu') || 'Import Menu / استيراد قائمة الطعام'}
-        </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+        {/* Search & Category Filter Controls */}
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flex: 1, minWidth: '280px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+            <Search size={16} style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', insetInlineStart: '0.75rem', color: 'var(--text-muted)' }} />
+            <input 
+              type="text"
+              className="form-input"
+              style={{ paddingInlineStart: '2.4rem', fontSize: '0.88rem' }}
+              placeholder={direction === 'rtl' ? 'ابحث في قائمة الطعام...' : 'Search menu...'}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
 
-        <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
-          <Plus size={16} /> {t('menu.addItem')}
-        </button>
+          <div style={{ position: 'relative', minWidth: '170px' }}>
+            <select
+              className="form-select"
+              style={{ fontSize: '0.85rem', paddingInlineStart: '2.2rem' }}
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+            >
+              <option value="ALL">{direction === 'rtl' ? 'جميع الأقسام' : 'All Categories'}</option>
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+            <Filter size={14} style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', insetInlineStart: '0.75rem', color: 'var(--text-muted)' }} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => {
+              setImportStep('upload');
+              setParsedItems([]);
+              setImportError(null);
+              setImportResult(null);
+              setShowImportModal(true);
+            }}
+          >
+            <FileUp size={16} /> {t('menu.importMenu') || 'Import Menu / استيراد قائمة الطعام'}
+          </button>
+
+          <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
+            <Plus size={16} /> {t('menu.addItem')}
+          </button>
+        </div>
       </div>
 
       {errorMsg && (
@@ -273,43 +378,102 @@ export default function MenuManagerPage() {
       )}
 
       {/* Menu Grid */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        {items.map((item) => (
-          <div key={item.id} className="glass-card" style={{ opacity: item.is_available ? 1 : 0.5 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
-                  <h3 style={{ fontSize: '1.15rem' }}>{item.name}</h3>
-                  <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--accent-amber)' }} className="ltr-text">€{item.price.toFixed(2)}</span>
-                  <span className="badge badge-open" style={{ fontSize: '0.7rem' }}>{item.category}</span>
+      {paginatedItems.length === 0 ? (
+        <div className="glass-card" style={{ textAlign: 'center', padding: '3rem 1.5rem', color: 'var(--text-muted)' }}>
+          <Utensils size={40} style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
+          <h4 style={{ fontSize: '1.1rem', color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
+            {direction === 'rtl' ? 'لا توجد نتائج تطابق بحثك' : 'No menu items match your search'}
+          </h4>
+          <p style={{ fontSize: '0.85rem' }}>
+            {direction === 'rtl' ? 'جرب البحث عن كلمة أخرى أو تغيير الفلتر.' : 'Try adjusting your search query or category filter.'}
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {paginatedItems.map((item) => (
+            <div key={item.id} className="glass-card" style={{ opacity: item.is_available ? 1 : 0.5 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '1.15rem' }}>{item.name}</h3>
+                    <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--accent-amber)' }} className="ltr-text">€{item.price.toFixed(2)}</span>
+                    <span className="badge badge-open" style={{ fontSize: '0.7rem' }}>{item.category}</span>
+                    {!item.is_available && (
+                      <span className="badge" style={{ fontSize: '0.7rem', background: 'rgba(239, 68, 68, 0.2)', color: 'var(--accent-rose)' }}>
+                        {direction === 'rtl' ? 'غير متوفر' : 'Unavailable'}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.65rem' }}>{item.description}</p>
+                  
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {item.is_vegetarian && <span style={{ fontSize: '0.72rem', background: 'rgba(16, 185, 129, 0.2)', color: 'var(--accent-emerald)', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>{t('menu.vegetarian')}</span>}
+                    {item.is_vegan && <span style={{ fontSize: '0.72rem', background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-cyan)', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>{t('menu.vegan')}</span>}
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('menu.allergens')} <strong>{Array.isArray(item.approved_allergens) ? item.approved_allergens.join(', ') : t('common.none')}</strong></span>
+                  </div>
                 </div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '0.65rem' }}>{item.description}</p>
-                
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {item.is_vegetarian && <span style={{ fontSize: '0.72rem', background: 'rgba(16, 185, 129, 0.2)', color: 'var(--accent-emerald)', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>{t('menu.vegetarian')}</span>}
-                  {item.is_vegan && <span style={{ fontSize: '0.72rem', background: 'rgba(6, 182, 212, 0.2)', color: 'var(--accent-cyan)', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 600 }}>{t('menu.vegan')}</span>}
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('menu.allergens')} <strong>{Array.isArray(item.approved_allergens) ? item.approved_allergens.join(', ') : t('common.none')}</strong></span>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <label className="toggle-switch">
+                    <input 
+                      type="checkbox" 
+                      checked={item.is_available} 
+                      onChange={() => handleToggleAvailability(item.id, item.is_available)} 
+                    />
+                    <span className="slider"></span>
+                  </label>
+
+                  <button className="btn btn-secondary" style={{ padding: '0.4rem', color: 'var(--accent-rose)' }} onClick={() => handleDeleteItem(item.id)}>
+                    <Trash2 size={16} />
+                  </button>
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <label className="toggle-switch">
-                  <input 
-                    type="checkbox" 
-                    checked={item.is_available} 
-                    onChange={() => handleToggleAvailability(item.id, item.is_available)} 
-                  />
-                  <span className="slider"></span>
-                </label>
-
-                <button className="btn btn-secondary" style={{ padding: '0.4rem', color: 'var(--accent-rose)' }} onClick={() => handleDeleteItem(item.id)}>
-                  <Trash2 size={16} />
-                </button>
               </div>
             </div>
+          ))}
+        </div>
+      )}
+
+      {/* Pagination Bar */}
+      {totalItems > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.75rem', flexWrap: 'wrap', gap: '1rem', fontSize: '0.88rem' }}>
+          <div style={{ color: 'var(--text-secondary)' }}>
+            {direction === 'rtl'
+              ? `عرض ${startItemNumber}–${endItemNumber} من ${totalItems} صنف`
+              : `Showing ${startItemNumber}–${endItemNumber} of ${totalItems} items`}
           </div>
-        ))}
-      </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button
+              className="btn btn-secondary"
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.82rem' }}
+              disabled={validCurrentPage <= 1}
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            >
+              <ChevronLeft size={16} /> {direction === 'rtl' ? 'التالي' : 'Previous'}
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              <button
+                key={page}
+                className={`btn ${page === validCurrentPage ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '0.35rem 0.65rem', fontSize: '0.82rem', minWidth: '32px' }}
+                onClick={() => setCurrentPage(page)}
+              >
+                {page}
+              </button>
+            ))}
+
+            <button
+              className="btn btn-secondary"
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.82rem' }}
+              disabled={validCurrentPage >= totalPages}
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            >
+              {direction === 'rtl' ? 'السابق' : 'Next'} <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Manual Add Item Modal */}
       {showAddModal && (

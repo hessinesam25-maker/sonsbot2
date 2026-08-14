@@ -165,28 +165,42 @@ export function retrieveRelevantTenantData(
 
   // Matching Menu items
   let relevantMenuItems: MenuItem[] = [];
-  const activeMenu = (menu || []).filter(m => m.is_available !== false);
+  const allMenu = menu || [];
 
-  if (activeMenu.length <= 10) {
-    // If menu is compact (10 or fewer items), send full menu to ensure complete context
-    relevantMenuItems = activeMenu;
+  const dietaryQuery = normQuery.includes('vegan') || normQuery.includes('veggie') || normQuery.includes('vegetarisch') || normQuery.includes('نباتي');
+  const priceQuery = normQuery.includes('price') || normQuery.includes('cost') || normQuery.includes('prijs') || normQuery.includes('kost') || normQuery.includes('سعر') || normQuery.includes('بكم') || normQuery.includes('كم');
+  const menuQuery = normQuery.includes('menu') || normQuery.includes('food') || normQuery.includes('drink') || normQuery.includes('kaart') || normQuery.includes('قائمة') || normQuery.includes('طعام') || normQuery.includes('مشروب') || normQuery.includes('أكل') || normQuery.includes('اكل');
+  const availabilityBroadQuery = normQuery.includes('متاح') || normQuery.includes('متوفر') || normQuery.includes('available') || normQuery.includes('beschikbaar') || normQuery.includes('recommend') || normQuery.includes('اقتراح');
+
+  if (allMenu.length <= 10) {
+    // For compact menus, include all items, but filter out unavailable items if query is a broad availability/recommendation request
+    if (availabilityBroadQuery && !priceQuery) {
+      relevantMenuItems = allMenu.filter(m => m.is_available !== false);
+    } else {
+      relevantMenuItems = allMenu;
+    }
   } else {
-    // Filter matching items
-    const dietaryQuery = normQuery.includes('vegan') || normQuery.includes('veggie') || normQuery.includes('vegetarisch') || normQuery.includes('نباتي');
-    const priceQuery = normQuery.includes('price') || normQuery.includes('cost') || normQuery.includes('prijs') || normQuery.includes('kost') || normQuery.includes('سعر') || normQuery.includes('بكم') || normQuery.includes('كم');
-    const menuQuery = normQuery.includes('menu') || normQuery.includes('food') || normQuery.includes('drink') || normQuery.includes('kaart') || normQuery.includes('قائمة') || normQuery.includes('طعام');
-
-    relevantMenuItems = activeMenu.filter(item => {
+    // 1. Direct match check across ALL items (including unavailable items)
+    const matchedDirect = allMenu.filter(item => {
       const itemNameNorm = normalizeText(item.name);
       const itemDescNorm = normalizeText(item.description || '');
       const itemCatNorm = normalizeText(item.category || '');
+      const itemIngrNorm = Array.isArray(item.ingredients) ? item.ingredients.map(normalizeText).join(' ') : '';
 
-      // Direct name match or word overlap
+      // Exact or partial name match
       if (normQuery.includes(itemNameNorm) || itemNameNorm.split(' ').some(w => w.length > 2 && normQuery.includes(w))) {
         return true;
       }
       // Category match
       if (itemCatNorm && normQuery.includes(itemCatNorm)) {
+        return true;
+      }
+      // Ingredient match
+      if (itemIngrNorm && itemIngrNorm.split(' ').some(w => w.length > 2 && normQuery.includes(w))) {
+        return true;
+      }
+      // Description match
+      if (itemDescNorm && itemDescNorm.split(' ').some(w => w.length > 3 && normQuery.includes(w))) {
         return true;
       }
       // Dietary filter match
@@ -196,9 +210,12 @@ export function retrieveRelevantTenantData(
       return false;
     });
 
-    // If query was broad menu/price query and no specific item matched, include top 8 items across categories
-    if (relevantMenuItems.length === 0 && (menuQuery || priceQuery || dietaryQuery)) {
-      relevantMenuItems = activeMenu.slice(0, 8);
+    if (matchedDirect.length > 0) {
+      relevantMenuItems = matchedDirect;
+    } else if (menuQuery || priceQuery || dietaryQuery || availabilityBroadQuery) {
+      // Broad menu/price query with no specific item match: return top available items
+      const availableItems = allMenu.filter(m => m.is_available !== false);
+      relevantMenuItems = availableItems.slice(0, 10);
     }
   }
 
