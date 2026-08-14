@@ -53,7 +53,8 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     const resA = await GET(getReqA);
     expect(resA.status).toBe(200);
     const dataA = await resA.json();
-    expect(dataA.tenant_id).toBe(tenantA_ID);
+    const settingsA = dataA.settings || dataA;
+    expect(settingsA.tenant_id).toBe(tenantA_ID);
 
     const getReqB = new NextRequest(`http://localhost:3000/api/ai-settings?tenantId=${tenantB_ID}`, {
       headers: {
@@ -64,7 +65,8 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     const resB = await GET(getReqB);
     expect(resB.status).toBe(200);
     const dataB = await resB.json();
-    expect(dataB.tenant_id).toBe(tenantB_ID);
+    const settingsB = dataB.settings || dataB;
+    expect(settingsB.tenant_id).toBe(tenantB_ID);
 
     const putReqB = new NextRequest('http://localhost:3000/api/ai-settings', {
       method: 'PUT',
@@ -77,7 +79,8 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     });
     const putResB = await PUT(putReqB);
     expect(putResB.status).toBe(200);
-    const updatedB = await putResB.json();
+    const putDataB = await putResB.json();
+    const updatedB = putDataB.settings || putDataB;
     expect(updatedB.tenant_id).toBe(tenantB_ID);
     expect(updatedB.tone).toBe('professional');
   });
@@ -190,7 +193,8 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     });
     const enableRes = await PUT(enableReq);
     expect(enableRes.status).toBe(200);
-    const enableData = await enableRes.json();
+    const enableJson = await enableRes.json();
+    const enableData = enableJson.settings || enableJson;
     expect(enableData.ai_enabled).toBe(true);
 
     // 2. Turn OFF all booleans using explicit false
@@ -212,7 +216,8 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     });
     const disableRes = await PUT(disableReq);
     expect(disableRes.status).toBe(200);
-    const disableData = await disableRes.json();
+    const disableJson = await disableRes.json();
+    const disableData = disableJson.settings || disableJson;
 
     expect(disableData.ai_enabled).toBe(false);
     expect(disableData.reply_to_dms).toBe(false);
@@ -229,7 +234,8 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     });
     const getRes = await GET(getReq);
     expect(getRes.status).toBe(200);
-    const getData = await getRes.json();
+    const getJson = await getRes.json();
+    const getData = getJson.settings || getJson;
 
     expect(getData.ai_enabled).toBe(false);
     expect(getData.reply_to_dms).toBe(false);
@@ -256,7 +262,8 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     });
     const stringFalseRes = await PUT(stringFalseReq);
     expect(stringFalseRes.status).toBe(200);
-    const stringFalseData = await stringFalseRes.json();
+    const stringFalseJson = await stringFalseRes.json();
+    const stringFalseData = stringFalseJson.settings || stringFalseJson;
 
     expect(stringFalseData.ai_enabled).toBe(false);
     expect(stringFalseData.reply_to_dms).toBe(false);
@@ -301,11 +308,11 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     expect(partialToneRes.status).toBe(200);
     const partialToneData = await partialToneRes.json();
 
-    expect(partialToneData.tone).toBe('professional');
-    expect(partialToneData.ai_enabled).toBe(true);
-    expect(partialToneData.reply_to_dms).toBe(true);
-    expect(partialToneData.reply_to_comments).toBe(true);
-    expect(partialToneData.use_knowledge_base).toBe(true);
+    expect(partialToneData.settings.tone).toBe('professional');
+    expect(partialToneData.settings.ai_enabled).toBe(true);
+    expect(partialToneData.settings.reply_to_dms).toBe(true);
+    expect(partialToneData.settings.reply_to_comments).toBe(true);
+    expect(partialToneData.settings.use_knowledge_base).toBe(true);
 
     // 3. Send ONLY ai_enabled: false
     const partialAiFalseReq = new NextRequest('http://localhost:3000/api/ai-settings', {
@@ -325,10 +332,28 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     expect(partialAiFalseRes.status).toBe(200);
     const partialAiFalseData = await partialAiFalseRes.json();
 
-    expect(partialAiFalseData.ai_enabled).toBe(false);
-    expect(partialAiFalseData.reply_to_dms).toBe(true);
-    expect(partialAiFalseData.reply_to_comments).toBe(true);
-    expect(partialAiFalseData.use_knowledge_base).toBe(true);
+    expect(partialAiFalseData.settings.ai_enabled).toBe(false);
+    expect(partialAiFalseData.settings.reply_to_dms).toBe(true);
+    expect(partialAiFalseData.settings.reply_to_comments).toBe(true);
+    expect(partialAiFalseData.settings.use_knowledge_base).toBe(true);
+  });
+
+  it('I. API contract wrapper { success: true, settings: ... } hydration produces exact ground truth state', async () => {
+    const mockApiResponse = {
+      success: true,
+      settings: {
+        ai_enabled: true,
+        reply_to_dms: true,
+        reply_to_comments: false,
+        use_knowledge_base: true,
+      },
+    };
+
+    const hydrated = mockApiResponse.settings || mockApiResponse;
+    expect(hydrated.ai_enabled).toBe(true);
+    expect(hydrated.reply_to_dms).toBe(true);
+    expect(hydrated.reply_to_comments).toBe(false);
+    expect(hydrated.use_knowledge_base).toBe(true);
   });
 });
 

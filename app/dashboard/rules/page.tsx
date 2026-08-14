@@ -55,9 +55,10 @@ export default function RulesPage() {
         const res = await fetch(`/api/rules?tenantId=${encodeURIComponent(selectedTenantId)}`);
         if (res.ok) {
           const data = await res.json();
-          if (isMounted && data) {
-            setRules(data);
-            setInitialRules(data);
+          const loadedRules = data.rules || data;
+          if (isMounted && loadedRules) {
+            setRules(loadedRules);
+            setInitialRules(loadedRules);
           }
         } else {
           const errData = await res.json().catch(() => ({}));
@@ -103,7 +104,8 @@ export default function RulesPage() {
         throw new Error(errData.error || 'فشل حفظ قواعد الأتمتة');
       }
 
-      const updated = await res.json();
+      const resData = await res.json();
+      const updated = resData.rules || resData;
       setRules(updated);
       setInitialRules(updated);
       setSavedSuccess(true);

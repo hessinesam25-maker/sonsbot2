@@ -63,8 +63,9 @@ export default function AISettingsPage() {
         const res = await fetch(`/api/ai-settings?tenantId=${encodeURIComponent(selectedTenantId)}`);
         if (res.ok) {
           const data = await res.json();
-          if (isMounted && data) {
-            setSettings(data);
+          const loadedSettings = data.settings || data;
+          if (isMounted && loadedSettings) {
+            setSettings(loadedSettings);
           }
         } else {
           const errData = await res.json().catch(() => ({}));
@@ -105,7 +106,8 @@ export default function AISettingsPage() {
         throw new Error(errData.error || t('aiSettings.errorMessage'));
       }
 
-      const updated = await res.json();
+      const resData = await res.json();
+      const updated = resData.settings || resData;
       if (updated) setSettings(updated);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3500);
