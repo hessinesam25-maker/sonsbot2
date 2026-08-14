@@ -1334,6 +1334,207 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       // Outbound fixed DM send MUST NOT be attempted for explicit manual takeover
       expect(sendDmSpy).not.toHaveBeenCalled();
     });
+
+    it('AI Comment Routing Matrix: handles AI comment replies, KB menu questions, and zero-DeepSeek fallbacks', async () => {
+      const { POST } = await import('../app/api/webhooks/instagram/route');
+      const { db } = await import('../lib/db/store');
+      const { encryptToken } = await import('../lib/security/encryption');
+      const { InstagramConnector } = await import('../lib/connectors/instagram');
+      const deepSeekModule = await import('../lib/ai/deepseek');
+
+      const mockConn = {
+        id: 'conn_cmt_ai_matrix',
+        tenant_id: 'tenant_cmt_matrix_123',
+        platform: 'instagram',
+        account_id: '17841400077777777',
+        account_name: 'cmt_matrix_account',
+        access_token_encrypted: encryptToken('valid_access_token_cmt'),
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      vi.spyOn(db, 'getConnections').mockResolvedValue([mockConn as any]);
+      vi.spyOn(db, 'getComments').mockResolvedValue([]);
+      vi.spyOn(db, 'addComment').mockResolvedValue({ id: 'cmt_row_1' } as any);
+      vi.spyOn(db, 'addAuditLog').mockResolvedValue({ id: 'audit_1' } as any);
+
+      const sendCommentSpy = vi.spyOn(InstagramConnector.prototype, 'sendCommentReply').mockResolvedValue({
+        success: true,
+        replyId: 'rpl_cmt_100',
+        httpStatus: 200,
+      });
+
+      const generateDeepSeekSpy = vi.spyOn(deepSeekModule, 'generateDeepSeekReply').mockResolvedValue({
+        success: true,
+        content: 'Espresso is available for €2.50.',
+      });
+
+      // 1. AI ON + AI Comments ON + Static Comments OFF -> AI Reply ONLY
+      vi.spyOn(db, 'getAISettings').mockResolvedValue({
+        id: 'ai_set_cmt_1',
+        tenant_id: 'tenant_cmt_matrix_123',
+        ai_enabled: true,
+        reply_to_comments: true,
+        reply_to_dms: true,
+        primary_language: 'en',
+        tone: 'friendly',
+        reply_length: 'short',
+        emoji_usage: 'low',
+        custom_instructions: '',
+        use_knowledge_base: true,
+        fallback_behavior: 'human_handoff',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+        id: 'rules_cmt_1',
+        tenant_id: 'tenant_cmt_matrix_123',
+        static_comment_enabled: false,
+        default_comment_reply: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any);
+
+      const commentPayload1 = {
+        object: 'instagram',
+        entry: [{
+          id: '17841400077777777',
+          changes: [{
+            field: 'comments',
+            value: {
+              id: 'cmt_matrix_001',
+              from: { id: 'cust_cmt_1', username: 'coffee_lover' },
+              text: 'Do you have Espresso and how much is it?',
+              media: { id: 'media_espresso' },
+              created_time: Math.floor(Date.now() / 1000)
+            }
+          }]
+        }]
+      };
+
+      const req1 = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(commentPayload1)
+      });
+
+      const res1 = await POST(req1);
+      expect(res1.status).toBe(200);
+      expect(generateDeepSeekSpy).toHaveBeenCalledTimes(1);
+      expect(sendCommentSpy).toHaveBeenCalledTimes(1);
+      expect(sendCommentSpy.mock.calls[0][0].content).toBe('Espresso is available for €2.50.');
+
+      generateDeepSeekSpy.mockClear();
+      sendCommentSpy.mockClear();
+
+      // 2. AI OFF + Static Comments ON -> Static Comment reply ONLY (DeepSeek calls = 0)
+      vi.spyOn(db, 'getAISettings').mockResolvedValue({
+        id: 'ai_set_cmt_1',
+        tenant_id: 'tenant_cmt_matrix_123',
+        ai_enabled: false,
+        reply_to_comments: true,
+        reply_to_dms: true,
+        primary_language: 'en',
+        tone: 'friendly',
+        reply_length: 'short',
+        emoji_usage: 'low',
+        custom_instructions: '',
+        use_knowledge_base: true,
+        fallback_behavior: 'human_handoff',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+        id: 'rules_cmt_1',
+        tenant_id: 'tenant_cmt_matrix_123',
+        static_comment_enabled: true,
+        default_comment_reply: 'Thanks for commenting on our post!',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any);
+
+      const commentPayload2 = {
+        object: 'instagram',
+        entry: [{
+          id: '17841400077777777',
+          changes: [{
+            field: 'comments',
+            value: {
+              id: 'cmt_matrix_002',
+              from: { id: 'cust_cmt_2', username: 'guest2' },
+              text: 'Nice photo!',
+              media: { id: 'media_photo' },
+              created_time: Math.floor(Date.now() / 1000)
+            }
+          }]
+        }]
+      };
+
+      const req2 = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(commentPayload2)
+      });
+
+      const res2 = await POST(req2);
+      expect(res2.status).toBe(200);
+      expect(generateDeepSeekSpy).not.toHaveBeenCalled();
+      expect(sendCommentSpy).toHaveBeenCalledTimes(1);
+      expect(sendCommentSpy.mock.calls[0][0].content).toBe('Thanks for commenting on our post!');
+
+      generateDeepSeekSpy.mockClear();
+      sendCommentSpy.mockClear();
+
+      // 3. AI ON + AI Comments OFF + Static Comments ON -> Static Comment reply ONLY (DeepSeek calls = 0)
+      vi.spyOn(db, 'getAISettings').mockResolvedValue({
+        id: 'ai_set_cmt_1',
+        tenant_id: 'tenant_cmt_matrix_123',
+        ai_enabled: true,
+        reply_to_comments: false, // AI Comments OFF
+        reply_to_dms: true,
+        primary_language: 'en',
+        tone: 'friendly',
+        reply_length: 'short',
+        emoji_usage: 'low',
+        custom_instructions: '',
+        use_knowledge_base: true,
+        fallback_behavior: 'human_handoff',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      const commentPayload3 = {
+        object: 'instagram',
+        entry: [{
+          id: '17841400077777777',
+          changes: [{
+            field: 'comments',
+            value: {
+              id: 'cmt_matrix_003',
+              from: { id: 'cust_cmt_3', username: 'guest3' },
+              text: 'Is wifi free?',
+              media: { id: 'media_wifi' },
+              created_time: Math.floor(Date.now() / 1000)
+            }
+          }]
+        }]
+      };
+
+      const req3 = new NextRequest('http://localhost:3000/api/webhooks/instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(commentPayload3)
+      });
+
+      const res3 = await POST(req3);
+      expect(res3.status).toBe(200);
+      expect(generateDeepSeekSpy).not.toHaveBeenCalled();
+      expect(sendCommentSpy).toHaveBeenCalledTimes(1);
+      expect(sendCommentSpy.mock.calls[0][0].content).toBe('Thanks for commenting on our post!');
+    });
   });
 });
 
