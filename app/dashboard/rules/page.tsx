@@ -47,11 +47,12 @@ export default function RulesPage() {
     async function loadRulesData() {
       setLoadingRules(true);
       setErrorMessage(null);
+      setInitialRules(null);
       try {
         const state = await db.getInstagramConnectionState(selectedTenantId);
         if (isMounted) setIgState(state);
 
-        const res = await fetch(`/api/rules?tenantId=${selectedTenantId}`);
+        const res = await fetch(`/api/rules?tenantId=${encodeURIComponent(selectedTenantId)}`);
         if (res.ok) {
           const data = await res.json();
           if (isMounted && data) {

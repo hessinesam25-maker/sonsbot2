@@ -388,7 +388,9 @@ export async function POST(req: NextRequest) {
         const aiSettings = await db.getAISettings(authoritativeTenantId);
         const isAiEnabledForDm = Boolean(conv.auto_reply_enabled && aiSettings.ai_enabled && aiSettings.reply_to_dms);
         
-        const staticDmEnabled = Boolean(rules.static_dm_enabled);
+        const staticDmEnabled = rules.static_dm_enabled !== undefined && rules.static_dm_enabled !== null 
+          ? Boolean(rules.static_dm_enabled) 
+          : Boolean(rules.default_dm_reply && rules.default_dm_reply.trim().length > 0);
 
         const fixedDmReply = (rules.default_dm_reply && rules.default_dm_reply.trim().length > 0) 
           ? rules.default_dm_reply.trim() 
@@ -569,11 +571,13 @@ export async function POST(req: NextRequest) {
         const aiSettings = await db.getAISettings(authoritativeTenantId);
         const isAiEnabledForComments = Boolean(aiSettings.ai_enabled && aiSettings.reply_to_comments);
 
-        const staticCommentEnabled = Boolean(rules.static_comment_enabled);
-
         const fixedCommentReply = (rules.default_comment_reply && rules.default_comment_reply.trim().length > 0) 
           ? rules.default_comment_reply.trim() 
-          : null;
+          : ((rules.default_dm_reply && rules.default_dm_reply.trim().length > 0) ? rules.default_dm_reply.trim() : null);
+
+        const staticCommentEnabled = rules.static_comment_enabled !== undefined && rules.static_comment_enabled !== null 
+          ? Boolean(rules.static_comment_enabled) 
+          : Boolean(fixedCommentReply);
 
         let isAutoReplied = false;
         let replyContent: string | undefined = undefined;

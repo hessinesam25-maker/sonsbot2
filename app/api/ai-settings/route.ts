@@ -128,20 +128,35 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 });
     }
 
-    const updated = await db.updateAISettings(body, targetTenantId);
+    const dbPayload: Partial<import('@/lib/db/types').AISettings> = {};
+    if (body.ai_enabled !== undefined) dbPayload.ai_enabled = Boolean(body.ai_enabled);
+    if (body.primary_language !== undefined) dbPayload.primary_language = String(body.primary_language);
+    if (body.tone !== undefined) dbPayload.tone = body.tone;
+    if (body.reply_length !== undefined) dbPayload.reply_length = body.reply_length;
+    if (body.emoji_usage !== undefined) dbPayload.emoji_usage = body.emoji_usage;
+    if (body.custom_instructions !== undefined) dbPayload.custom_instructions = String(body.custom_instructions);
+    if (body.reply_to_dms !== undefined) dbPayload.reply_to_dms = Boolean(body.reply_to_dms);
+    if (body.reply_to_comments !== undefined) dbPayload.reply_to_comments = Boolean(body.reply_to_comments);
+    if (body.use_knowledge_base !== undefined) dbPayload.use_knowledge_base = Boolean(body.use_knowledge_base);
+    if (body.fallback_behavior !== undefined) dbPayload.fallback_behavior = body.fallback_behavior;
+
+    await db.updateAISettings(dbPayload, targetTenantId);
+
+    // Re-fetch persisted row from server database to enforce DB truth
+    const verified = await db.getAISettings(targetTenantId);
 
     await db.addAuditLog({
       event_type: 'AI_SETTINGS_UPDATED',
       actor_type: 'user',
       tenant_id: targetTenantId,
       details: { 
-        ai_enabled: updated?.ai_enabled, 
-        tone: updated?.tone, 
-        primary_language: updated?.primary_language 
+        ai_enabled: verified?.ai_enabled, 
+        tone: verified?.tone, 
+        primary_language: verified?.primary_language 
       },
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json(verified);
   } catch (error: any) {
     console.error('Error updating AI settings:', error);
     return NextResponse.json({ error: error.message || 'Failed to update AI settings' }, { status: 500 });

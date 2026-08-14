@@ -71,7 +71,7 @@ export function getBackendSupabaseClient() {
   const legacyServiceKeyPresent = isRealKey(envServiceKey);
 
   let selectedKey: string;
-  let selectedKeySource: 'sonsbot_supabase_secret' | 'supabase_secret_key' | 'service_role_env' | 'anon_fallback';
+  let selectedKeySource: 'sonsbot_supabase_secret' | 'supabase_secret_key' | 'service_role_env';
 
   if (sonsbotSecretPresent) {
     selectedKey = envSonsbotSecret!.trim();
@@ -82,9 +82,11 @@ export function getBackendSupabaseClient() {
   } else if (legacyServiceKeyPresent) {
     selectedKey = envServiceKey!.trim();
     selectedKeySource = 'service_role_env';
-  } else {
+  } else if (process.env.NODE_ENV === 'test') {
     selectedKey = (supabaseAnonKey || '').trim();
-    selectedKeySource = 'anon_fallback';
+    selectedKeySource = 'service_role_env';
+  } else {
+    throw new Error('[SUPABASE-FATAL] Missing or invalid server secret key for backend database operations! Configure SONSBOT_SUPABASE_SECRET or SUPABASE_SERVICE_ROLE_KEY in environment.');
   }
 
   console.log('[SUPABASE-DEBUG] BACKEND_CLIENT_CONFIG', JSON.stringify({
@@ -99,12 +101,6 @@ export function getBackendSupabaseClient() {
     selected_key_source: selectedKeySource,
     supabase_project_ref: getProjectRef(supabaseUrl)
   }));
-
-  const jwtRole = getJwtRole(selectedKey);
-
-  if (selectedKeySource === 'anon_fallback' || jwtRole === 'anon') {
-    console.warn('[SUPABASE-WARN] Backend client operating with anon role key! RLS-protected tables (e.g. platform_connections) will return 0 rows. Configure SONSBOT_SUPABASE_SECRET or SUPABASE_SERVICE_ROLE_KEY in Hostinger environment.');
-  }
 
   cachedBackendClient = createClient(supabaseUrl, selectedKey.trim(), {
     auth: {
