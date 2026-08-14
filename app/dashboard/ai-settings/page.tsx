@@ -67,22 +67,15 @@ export default function AISettingsPage() {
             setSettings(data);
           }
         } else {
-          const fallbackData = await db.getAISettings(selectedTenantId);
-          if (isMounted && fallbackData) {
-            setSettings(fallbackData);
+          const errData = await res.json().catch(() => ({}));
+          if (isMounted) {
+            setErrorMessage(errData.error || t('aiSettings.loadErrorMessage'));
           }
         }
       } catch (err: any) {
         console.error('Error loading AI Settings:', err);
-        try {
-          const fallbackData = await db.getAISettings(selectedTenantId);
-          if (isMounted && fallbackData) {
-            setSettings(fallbackData);
-          }
-        } catch {
-          if (isMounted) {
-            setErrorMessage(t('aiSettings.loadErrorMessage'));
-          }
+        if (isMounted) {
+          setErrorMessage(err.message || t('aiSettings.loadErrorMessage'));
         }
       } finally {
         if (isMounted) setLoading(false);

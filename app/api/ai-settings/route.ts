@@ -112,6 +112,19 @@ export async function GET(req: NextRequest) {
   }
 }
 
+function parseOptionalBoolean(val: any): boolean | undefined {
+  if (val === undefined || val === null) {
+    return undefined;
+  }
+  if (val === false || val === 'false' || val === 0 || val === '0' || val === 'off' || val === 'disabled') {
+    return false;
+  }
+  if (val === true || val === 'true' || val === 1 || val === '1' || val === 'on' || val === 'enabled') {
+    return true;
+  }
+  return Boolean(val);
+}
+
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
@@ -129,16 +142,35 @@ export async function PUT(req: NextRequest) {
     }
 
     const dbPayload: Partial<import('@/lib/db/types').AISettings> = {};
-    if (body.ai_enabled !== undefined) dbPayload.ai_enabled = Boolean(body.ai_enabled);
+
+    const aiEnabledVal = parseOptionalBoolean(body.ai_enabled !== undefined ? body.ai_enabled : body.aiEnabled);
+    if (aiEnabledVal !== undefined) dbPayload.ai_enabled = aiEnabledVal;
+
     if (body.primary_language !== undefined) dbPayload.primary_language = String(body.primary_language);
+    else if (body.primaryLanguage !== undefined) dbPayload.primary_language = String(body.primaryLanguage);
+
     if (body.tone !== undefined) dbPayload.tone = body.tone;
+
     if (body.reply_length !== undefined) dbPayload.reply_length = body.reply_length;
+    else if (body.replyLength !== undefined) dbPayload.reply_length = body.replyLength;
+
     if (body.emoji_usage !== undefined) dbPayload.emoji_usage = body.emoji_usage;
+    else if (body.emojiUsage !== undefined) dbPayload.emoji_usage = body.emojiUsage;
+
     if (body.custom_instructions !== undefined) dbPayload.custom_instructions = String(body.custom_instructions);
-    if (body.reply_to_dms !== undefined) dbPayload.reply_to_dms = Boolean(body.reply_to_dms);
-    if (body.reply_to_comments !== undefined) dbPayload.reply_to_comments = Boolean(body.reply_to_comments);
-    if (body.use_knowledge_base !== undefined) dbPayload.use_knowledge_base = Boolean(body.use_knowledge_base);
+    else if (body.customInstructions !== undefined) dbPayload.custom_instructions = String(body.customInstructions);
+
+    const replyToDmsVal = parseOptionalBoolean(body.reply_to_dms !== undefined ? body.reply_to_dms : body.replyToDms);
+    if (replyToDmsVal !== undefined) dbPayload.reply_to_dms = replyToDmsVal;
+
+    const replyToCommentsVal = parseOptionalBoolean(body.reply_to_comments !== undefined ? body.reply_to_comments : body.replyToComments);
+    if (replyToCommentsVal !== undefined) dbPayload.reply_to_comments = replyToCommentsVal;
+
+    const useKbVal = parseOptionalBoolean(body.use_knowledge_base !== undefined ? body.use_knowledge_base : body.useKnowledgeBase);
+    if (useKbVal !== undefined) dbPayload.use_knowledge_base = useKbVal;
+
     if (body.fallback_behavior !== undefined) dbPayload.fallback_behavior = body.fallback_behavior;
+    else if (body.fallbackBehavior !== undefined) dbPayload.fallback_behavior = body.fallbackBehavior;
 
     await db.updateAISettings(dbPayload, targetTenantId);
 
