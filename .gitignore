@@ -10,3 +10,5 @@ coverage/
 tsconfig.tsbuildinfo
 .vercel
 .env*
+*.traineddata
+scratch/
