@@ -99,6 +99,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'tenantId parameter is required.' }, { status: 400 });
     }
 
+    const ssrClient = createServerSupabaseClient(req);
+    const backend = getBackendSupabaseClient();
+    const dbClient = backend;
+
     let importedCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
@@ -132,7 +136,7 @@ export async function POST(req: NextRequest) {
             is_vegetarian: Boolean(item.is_vegetarian),
             is_vegan: Boolean(item.is_vegan),
             is_available: item.is_available ?? true,
-          });
+          }, dbClient);
           if (updated) {
             updatedCount++;
             createdOrUpdatedItems.push(updated);
@@ -157,7 +161,7 @@ export async function POST(req: NextRequest) {
             is_vegetarian: Boolean(item.is_vegetarian),
             is_vegan: Boolean(item.is_vegan),
             is_available: item.is_available ?? true,
-          }, targetTenantId);
+          }, targetTenantId, dbClient);
 
           if (created) {
             importedCount++;

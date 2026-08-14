@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
 
         if (extractedItems.length === 0 && (!rawExtractedText || rawExtractedText.trim().length < 20)) {
           return NextResponse.json({
-            error: 'Scanned image PDF detected without selectable text. Please upload menu as JPG/PNG image directly for OCR processing.',
+            error: 'This PDF is scanned/image-based. Image OCR support will be added later. / ملف PDF عبارة عن صورة ممسوحة ضوئيًا. دعم الصور سنضيفه لاحقًا.',
           }, { status: 422 });
         }
       } catch (pdfErr: any) {
