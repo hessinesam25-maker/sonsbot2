@@ -169,4 +169,167 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     expect(webhookCode).not.toContain('DEEPSEEK_API_KEY');
     expect(webhookCode).not.toContain('api.deepseek.com');
   });
+
+  it('F. Boolean FALSE persistence: setting ai_enabled=false and all channel booleans to false survives API sanitization, store payload, DB upsert, and GET reload', async () => {
+    // 1. Enable all booleans first
+    const enableReq = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({
+        tenant_id: tenantA_ID,
+        ai_enabled: true,
+        reply_to_dms: true,
+        reply_to_comments: true,
+        use_knowledge_base: true,
+      }),
+    });
+    const enableRes = await PUT(enableReq);
+    expect(enableRes.status).toBe(200);
+    const enableData = await enableRes.json();
+    expect(enableData.ai_enabled).toBe(true);
+
+    // 2. Turn OFF all booleans using explicit false
+    const disableReq = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({
+        tenant_id: tenantA_ID,
+        ai_enabled: false,
+        reply_to_dms: false,
+        reply_to_comments: false,
+        use_knowledge_base: false,
+      }),
+    });
+    const disableRes = await PUT(disableReq);
+    expect(disableRes.status).toBe(200);
+    const disableData = await disableRes.json();
+
+    expect(disableData.ai_enabled).toBe(false);
+    expect(disableData.reply_to_dms).toBe(false);
+    expect(disableData.reply_to_comments).toBe(false);
+    expect(disableData.use_knowledge_base).toBe(false);
+
+    // 3. Verify GET / reload returns exact false ground truth
+    const getReq = new NextRequest(`http://localhost:3000/api/ai-settings?tenantId=${tenantA_ID}`, {
+      headers: {
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+    });
+    const getRes = await GET(getReq);
+    expect(getRes.status).toBe(200);
+    const getData = await getRes.json();
+
+    expect(getData.ai_enabled).toBe(false);
+    expect(getData.reply_to_dms).toBe(false);
+    expect(getData.reply_to_comments).toBe(false);
+    expect(getData.use_knowledge_base).toBe(false);
+  });
+
+  it('G. String "false" and camelCase payload sanitization correctly parses to boolean false', async () => {
+    const stringFalseReq = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({
+        tenant_id: tenantA_ID,
+        aiEnabled: 'false',
+        replyToDms: '0',
+        replyToComments: 'off',
+        useKnowledgeBase: 'disabled',
+      }),
+    });
+    const stringFalseRes = await PUT(stringFalseReq);
+    expect(stringFalseRes.status).toBe(200);
+    const stringFalseData = await stringFalseRes.json();
+
+    expect(stringFalseData.ai_enabled).toBe(false);
+    expect(stringFalseData.reply_to_dms).toBe(false);
+    expect(stringFalseData.reply_to_comments).toBe(false);
+    expect(stringFalseData.use_knowledge_base).toBe(false);
+  });
+
+  it('H. Partial update regression test: omitted boolean fields are preserved and not coerced to false', async () => {
+    // 1. Set all booleans to true
+    await PUT(new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({
+        tenant_id: tenantA_ID,
+        ai_enabled: true,
+        reply_to_dms: true,
+        reply_to_comments: true,
+        use_knowledge_base: true,
+      }),
+    }));
+
+    // 2. Send ONLY tone: "professional"
+    const partialToneReq = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({
+        tenant_id: tenantA_ID,
+        tone: 'professional',
+      }),
+    });
+    const partialToneRes = await PUT(partialToneReq);
+    expect(partialToneRes.status).toBe(200);
+    const partialToneData = await partialToneRes.json();
+
+    expect(partialToneData.tone).toBe('professional');
+    expect(partialToneData.ai_enabled).toBe(true);
+    expect(partialToneData.reply_to_dms).toBe(true);
+    expect(partialToneData.reply_to_comments).toBe(true);
+    expect(partialToneData.use_knowledge_base).toBe(true);
+
+    // 3. Send ONLY ai_enabled: false
+    const partialAiFalseReq = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({
+        tenant_id: tenantA_ID,
+        ai_enabled: false,
+      }),
+    });
+    const partialAiFalseRes = await PUT(partialAiFalseReq);
+    expect(partialAiFalseRes.status).toBe(200);
+    const partialAiFalseData = await partialAiFalseRes.json();
+
+    expect(partialAiFalseData.ai_enabled).toBe(false);
+    expect(partialAiFalseData.reply_to_dms).toBe(true);
+    expect(partialAiFalseData.reply_to_comments).toBe(true);
+    expect(partialAiFalseData.use_knowledge_base).toBe(true);
+  });
 });
+
+

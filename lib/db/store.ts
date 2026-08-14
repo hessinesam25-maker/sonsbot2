@@ -564,9 +564,11 @@ export const db = {
     return merged;
   },
 
-  // Real Supabase AI Settings with graceful fallback
+  // Real Supabase AI Settings with fail-closed production read path
   getAISettings: async (tenantId: string = DEFAULT_TENANT_ID): Promise<AISettings> => {
     const client = getDbClient();
+    const isTestEnv = process.env.NODE_ENV === 'test';
+
     try {
       const { data, error } = await client
         .from('ai_settings')
@@ -574,34 +576,77 @@ export const db = {
         .eq('tenant_id', tenantId)
         .maybeSingle();
 
-      if (!error && data) {
+      if (error) {
+        console.error('[AI_SETTINGS_LOOKUP_ERROR]', error);
+        if (!isTestEnv) {
+          throw new Error(`Database error fetching AI settings for tenant ${tenantId}: ${error.message}`);
+        }
+      }
+
+      if (data) {
         aiSettingsMemoryStore.set(tenantId, data);
         return data;
       }
+
+      if (!data && !isTestEnv) {
+        const initialRow: Partial<AISettings> = {
+          tenant_id: tenantId,
+          ai_enabled: false,
+          primary_language: 'nl-BE',
+          tone: 'friendly',
+          reply_length: 'short',
+          emoji_usage: 'low',
+          custom_instructions: '',
+          reply_to_dms: true,
+          reply_to_comments: true,
+          use_knowledge_base: true,
+          fallback_behavior: 'human_handoff',
+        };
+
+        const { data: inserted, error: insertErr } = await client
+          .from('ai_settings')
+          .insert(initialRow)
+          .select()
+          .single();
+
+        if (insertErr || !inserted) {
+          throw new Error(`Failed to initialize AI settings in database for tenant ${tenantId}: ${insertErr?.message || 'Unknown database error'}`);
+        }
+
+        aiSettingsMemoryStore.set(tenantId, inserted);
+        return inserted;
+      }
     } catch (err: any) {
+      if (!isTestEnv) {
+        throw err;
+      }
       console.warn('[AI_SETTINGS_LOOKUP_WARN]', err.message);
     }
 
-    if (aiSettingsMemoryStore.has(tenantId)) {
+    if (isTestEnv && aiSettingsMemoryStore.has(tenantId)) {
       return aiSettingsMemoryStore.get(tenantId)!;
     }
 
-    return {
-      id: `ai_set_${tenantId.slice(0, 8)}`,
-      tenant_id: tenantId,
-      ai_enabled: false,
-      primary_language: 'nl-BE',
-      tone: 'friendly',
-      reply_length: 'short',
-      emoji_usage: 'low',
-      custom_instructions: '',
-      reply_to_dms: true,
-      reply_to_comments: true,
-      use_knowledge_base: true,
-      fallback_behavior: 'human_handoff',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    if (isTestEnv) {
+      return {
+        id: `ai_set_${tenantId.slice(0, 8)}`,
+        tenant_id: tenantId,
+        ai_enabled: false,
+        primary_language: 'nl-BE',
+        tone: 'friendly',
+        reply_length: 'short',
+        emoji_usage: 'low',
+        custom_instructions: '',
+        reply_to_dms: true,
+        reply_to_comments: true,
+        use_knowledge_base: true,
+        fallback_behavior: 'human_handoff',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    throw new Error(`AI settings for tenant ${tenantId} not found in database.`);
   },
 
   updateAISettings: async (updates: Partial<AISettings>, tenantId: string = DEFAULT_TENANT_ID): Promise<AISettings> => {
