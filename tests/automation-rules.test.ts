@@ -116,7 +116,7 @@ describe('Automation Rules & Webhook Isolation Test Suite', () => {
     });
 
     it('allows Platform Admin to fetch and update rules for any tenant', async () => {
-      vi.spyOn(db, 'updateAutomationRules').mockImplementation(async (updates: any) => ({
+      let rulesStateB: any = {
         id: 'rules_B',
         tenant_id: tenantB,
         min_confidence_score: 0.85,
@@ -126,9 +126,15 @@ describe('Automation Rules & Webhook Isolation Test Suite', () => {
         never_reply_complaints: true,
         hide_spam: true,
         ai_tone: 'friendly_warm',
-        ...updates,
         updated_at: new Date().toISOString(),
-      }));
+      };
+
+      vi.spyOn(db, 'updateAutomationRules').mockImplementation(async (updates, tid) => {
+        rulesStateB = { ...rulesStateB, ...updates, tenant_id: tid || tenantB };
+        return rulesStateB;
+      });
+
+      vi.spyOn(db, 'getAutomationRules').mockImplementation(async (tid) => rulesStateB);
 
       const req = new NextRequest('http://localhost:3000/api/rules', {
         method: 'PUT',

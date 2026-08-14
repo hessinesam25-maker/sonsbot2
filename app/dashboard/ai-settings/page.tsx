@@ -107,24 +107,15 @@ export default function AISettingsPage() {
         body: JSON.stringify({ ...settings, tenant_id: selectedTenantId }),
       });
 
-      if (res.ok) {
-        const updated = await res.json();
-        if (updated) setSettings(updated);
-        setSavedSuccess(true);
-        setTimeout(() => setSavedSuccess(false), 3500);
-      } else {
+      if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        if (res.status === 403) {
-          throw new Error(errData.error || t('aiSettings.errorMessage'));
-        }
-        const updated = await db.updateAISettings(
-          { ...settings, tenant_id: selectedTenantId },
-          selectedTenantId
-        );
-        if (updated) setSettings(updated);
-        setSavedSuccess(true);
-        setTimeout(() => setSavedSuccess(false), 3500);
+        throw new Error(errData.error || t('aiSettings.errorMessage'));
       }
+
+      const updated = await res.json();
+      if (updated) setSettings(updated);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3500);
     } catch (err: any) {
       console.error('Error saving AI Settings:', err);
       setErrorMessage(err.message || t('aiSettings.errorMessage'));

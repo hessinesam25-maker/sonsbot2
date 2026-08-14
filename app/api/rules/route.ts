@@ -156,21 +156,24 @@ export async function PUT(req: NextRequest) {
     if (body.hide_spam !== undefined) dbPayload.hide_spam = body.hide_spam;
     if (body.ai_tone !== undefined) dbPayload.ai_tone = body.ai_tone;
 
-    const updated = await db.updateAutomationRules(dbPayload, tenantId);
+    await db.updateAutomationRules(dbPayload, tenantId);
+
+    // Re-fetch persisted row from database to enforce ground truth
+    const verified = await db.getAutomationRules(tenantId);
 
     await db.addAuditLog({
       tenant_id: tenantId,
       event_type: 'AUTOMATION_RULES_UPDATED',
       actor_type: 'user',
       details: {
-        static_dm_enabled: updated?.static_dm_enabled,
-        default_dm_reply: updated?.default_dm_reply,
-        static_comment_enabled: updated?.static_comment_enabled,
-        default_comment_reply: updated?.default_comment_reply,
+        static_dm_enabled: verified?.static_dm_enabled,
+        default_dm_reply: verified?.default_dm_reply,
+        static_comment_enabled: verified?.static_comment_enabled,
+        default_comment_reply: verified?.default_comment_reply,
       },
     });
 
-    return NextResponse.json(updated);
+    return NextResponse.json(verified);
   } catch (err: any) {
     console.error('[PUT_AUTOMATION_RULES_API_ERROR]', err);
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
