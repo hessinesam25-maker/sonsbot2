@@ -53,6 +53,18 @@ export function buildTenantMessages(input: PromptBuilderInput): DeepSeekChatMess
 - Emoji Usage: ${settings.emoji_usage || 'low'}
 ${settings.custom_instructions ? `- Custom Tenant Instructions: ${settings.custom_instructions}` : ''}
 
+=== CURRENT STYLE OVERRIDE & IN-CONTEXT DEMONSTRATION RULES ===
+1. OVERRIDE RULE: The CURRENT tenant AI settings and Custom Tenant Instructions above ALWAYS take precedence and OVERRIDE the style, tone, language, punctuation, emoji usage, length, and formatting shown in any previous assistant messages in this conversation history.
+2. FACTUAL CONTEXT ONLY: Previous assistant messages in the conversation history are provided strictly for FACTUAL CONTEXT ONLY (to track what facts or items were previously discussed with the customer).
+3. NO STYLE IMITATION: NEVER imitate, copy, or adopt the tone, formality, excessive exclamation marks, or emoji patterns from previous assistant messages if they conflict with the current Custom Tenant Instructions or settings.
+4. EMOJI ENFORCEMENT: ${
+  settings.emoji_usage === 'none' || (settings.custom_instructions && /no emoji|geen emoji|بدون ايموجي|بدون إيموجي|لا تستخدم ايموجي/i.test(settings.custom_instructions))
+    ? 'STRICT EMOJI RULE: Do NOT use any emojis or emoticons in your response under any circumstances.'
+    : settings.emoji_usage === 'normal'
+      ? 'Use relevant emojis naturally.'
+      : 'Keep emoji usage low to minimal.'
+}
+
 === LANGUAGE & TRANSLATION RULES ===
 - If the customer writes in a clear specific language (e.g. English, Dutch, French, Arabic), respond naturally in the customer's language unless Custom Tenant Instructions explicitly state otherwise.
 - DO NOT translate official restaurant names, exact street addresses, URLs, Instagram handles, or specific brand menu names.
