@@ -1,20 +1,142 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/db/supabase-ssr';
+import { getBackendSupabaseClient } from '@/lib/db/client';
 import { db } from '@/lib/db/store';
 
-export async function GET() {
-  const rules = await db.getAutomationRules();
-  return NextResponse.json(rules);
+export const dynamic = 'force-dynamic';
+
+async function authenticateAndAuthorize(req: NextRequest, targetTenantId?: string, isWriteOperation: boolean = false) {
+  const backend = getBackendSupabaseClient();
+  const ssrClient = createServerSupabaseClient(req);
+
+  let isPlatformAdmin = false;
+  let tenantUser: { tenant_id: string; role: string } | null = null;
+  let isAuthenticated = false;
+
+  const { data: { user }, error: authErr } = await ssrClient.auth.getUser();
+
+  if (user && !authErr) {
+    isAuthenticated = true;
+    const { data: adminCheck } = await backend
+      .from('platform_admins')
+      .select('id')
+      .eq('auth_user_id', user.id)
+      .maybeSingle();
+
+    if (adminCheck) {
+      isPlatformAdmin = true;
+    } else {
+      const { data: userCheck } = await backend
+        .from('users')
+        .select('tenant_id, role')
+        .eq('auth_user_id', user.id)
+        .maybeSingle();
+
+      if (userCheck) {
+        tenantUser = userCheck;
+      }
+    }
+  } else if (process.env.NODE_ENV === 'test') {
+    const testRole = req.headers.get('x-test-role');
+    const testTenantId = req.headers.get('x-test-tenant-id');
+    const authHeader = req.headers.get('Authorization');
+
+    if (authHeader && authHeader.startsWith('Bearer test_')) {
+      isAuthenticated = true;
+      if (testRole === 'platform_admin') {
+        isPlatformAdmin = true;
+      } else if (testTenantId) {
+        tenantUser = {
+          tenant_id: testTenantId,
+          role: testRole || 'owner',
+        };
+      }
+    }
+  }
+
+  if (!isAuthenticated) {
+    return { status: 401, error: 'Unauthorized: Valid authentication required.' };
+  }
+
+  if (isPlatformAdmin) {
+    return { isPlatformAdmin: true, tenantId: targetTenantId || tenantUser?.tenant_id || '1029a20d-1342-42fa-87c2-c0fef3cceeaf' };
+  }
+
+  if (!tenantUser) {
+    return { status: 403, error: 'Forbidden: No tenant user mapping found.' };
+  }
+
+  if (targetTenantId && targetTenantId !== tenantUser.tenant_id) {
+    return { status: 403, error: 'Forbidden: Cross-tenant access denied.' };
+  }
+
+  if (isWriteOperation) {
+    if (tenantUser.role === 'support_agent') {
+      return { status: 403, error: 'Forbidden: Support agents are not permitted to update automation rules.' };
+    }
+    if (tenantUser.role !== 'owner' && tenantUser.role !== 'manager') {
+      return { status: 403, error: 'Forbidden: Insufficient permissions to update automation rules.' };
+    }
+  }
+
+  return { isPlatformAdmin: false, tenantId: tenantUser.tenant_id, role: tenantUser.role };
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const requestedTenantId = searchParams.get('tenantId') || undefined;
+
+    const authResult = await authenticateAndAuthorize(req, requestedTenantId, false);
+    if (authResult.status && authResult.error) {
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+    }
+
+    const tenantId = authResult.tenantId;
+    if (!tenantId) {
+      return NextResponse.json({ error: 'Tenant ID required' }, { status: 400 });
+    }
+
+    const rules = await db.getAutomationRules(tenantId);
+    return NextResponse.json(rules);
+  } catch (err: any) {
+    console.error('[GET_AUTOMATION_RULES_API_ERROR]', err);
+    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
+  }
 }
 
 export async function PUT(req: NextRequest) {
-  const body = await req.json();
-  const updated = await db.updateAutomationRules(body);
+  try {
+    const body = await req.json();
+    const requestedTenantId = body.tenantId || body.tenant_id || undefined;
 
-  await db.addAuditLog({
-    event_type: 'AUTOMATION_RULES_UPDATED',
-    actor_type: 'user',
-    details: { min_confidence: updated?.min_confidence_score, tone: updated?.ai_tone },
-  });
+    const authResult = await authenticateAndAuthorize(req, requestedTenantId, true);
+    if (authResult.status && authResult.error) {
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+    }
 
-  return NextResponse.json(updated);
+    const tenantId = authResult.tenantId;
+    if (!tenantId) {
+      return NextResponse.json({ error: 'Tenant ID required' }, { status: 400 });
+    }
+
+    const updated = await db.updateAutomationRules({ ...body, tenant_id: tenantId }, tenantId);
+
+    await db.addAuditLog({
+      tenant_id: tenantId,
+      event_type: 'AUTOMATION_RULES_UPDATED',
+      actor_type: 'user',
+      details: {
+        static_dm_enabled: updated?.static_dm_enabled,
+        default_dm_reply: updated?.default_dm_reply,
+        static_comment_enabled: updated?.static_comment_enabled,
+        default_comment_reply: updated?.default_comment_reply,
+      },
+    });
+
+    return NextResponse.json(updated);
+  } catch (err: any) {
+    console.error('[PUT_AUTOMATION_RULES_API_ERROR]', err);
+    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
+  }
 }

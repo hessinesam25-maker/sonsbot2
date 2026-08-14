@@ -444,21 +444,41 @@ export const db = {
         never_reply_complaints: true,
         hide_spam: true,
         ai_tone: 'friendly_warm',
-        default_dm_reply: 'Welkom! Hoe kunnen we u vandaag helpen?',
+        default_dm_reply: undefined,
+        static_dm_enabled: false,
+        static_comment_enabled: false,
+        default_comment_reply: undefined,
         updated_at: new Date().toISOString(),
       };
     }
-    return data;
+    return {
+      ...data,
+      static_dm_enabled: data.static_dm_enabled !== undefined && data.static_dm_enabled !== null ? Boolean(data.static_dm_enabled) : false,
+      static_comment_enabled: data.static_comment_enabled !== undefined && data.static_comment_enabled !== null ? Boolean(data.static_comment_enabled) : false,
+      default_dm_reply: data.default_dm_reply ?? undefined,
+      default_comment_reply: data.default_comment_reply ?? undefined,
+    };
   },
 
-  updateAutomationRules: async (updates: Partial<AutomationRules>, tenantId: string = DEFAULT_TENANT_ID) => {
-    const backend = getDbClient();
+  updateAutomationRules: async (updates: Partial<AutomationRules>, tenantId: string = DEFAULT_TENANT_ID, customClient?: any) => {
+    const client = customClient || getBackendSupabaseClient();
     const targetTenantId = updates.tenant_id || tenantId;
-    const { data } = await backend
+    const payload: any = {
+      ...updates,
+      tenant_id: targetTenantId,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await client
       .from('automation_rules')
-      .upsert({ ...updates, tenant_id: targetTenantId })
+      .upsert(payload, { onConflict: 'tenant_id' })
       .select()
       .single();
+
+    if (error) {
+      console.error('[UPDATE_AUTOMATION_RULES_ERROR]', error);
+      throw new Error(`Failed to update automation rules: ${error.message}`);
+    }
     return data;
   },
 
