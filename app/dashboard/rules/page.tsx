@@ -40,35 +40,42 @@ export default function RulesPage() {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const reqSeqRef = React.useRef<number>(0);
+
   useEffect(() => {
     if (isLoading || !selectedTenantId) return;
 
+    const currentSeq = ++reqSeqRef.current;
     let isMounted = true;
+
     async function loadRulesData() {
       setLoadingRules(true);
       setErrorMessage(null);
       setInitialRules(null);
       try {
         const state = await db.getInstagramConnectionState(selectedTenantId);
-        if (isMounted) setIgState(state);
+        if (isMounted && currentSeq === reqSeqRef.current) setIgState(state);
 
-        const res = await fetch(`/api/rules?tenantId=${encodeURIComponent(selectedTenantId)}`);
+        const res = await fetch(`/api/rules?tenantId=${encodeURIComponent(selectedTenantId)}`, {
+          headers: { 'Cache-Control': 'no-cache, no-store' },
+        });
+
         if (res.ok) {
           const data = await res.json();
           const loadedRules = data.rules || data;
-          if (isMounted && loadedRules) {
+          if (isMounted && currentSeq === reqSeqRef.current && loadedRules && loadedRules.tenant_id === selectedTenantId) {
             setRules(loadedRules);
             setInitialRules(loadedRules);
           }
         } else {
           const errData = await res.json().catch(() => ({}));
-          if (isMounted) setErrorMessage(errData.error || 'فشل تحميل قواعد الأتمتة');
+          if (isMounted && currentSeq === reqSeqRef.current) setErrorMessage(errData.error || 'فشل تحميل قواعد الأتمتة');
         }
       } catch (err: any) {
         console.error('[RULES_LOAD_ERROR]', err);
-        if (isMounted) setErrorMessage('حدث خطأ أثناء تحميل قواعد الأتمتة');
+        if (isMounted && currentSeq === reqSeqRef.current) setErrorMessage('حدث خطأ أثناء تحميل قواعد الأتمتة');
       } finally {
-        if (isMounted) setLoadingRules(false);
+        if (isMounted && currentSeq === reqSeqRef.current) setLoadingRules(false);
       }
     }
 

@@ -159,10 +159,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (event === 'SIGNED_OUT' || (event === 'INITIAL_SESSION' && !session)) {
         clearState();
         setIsLoading(false);
-      } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
         if (session) {
           await fetchAuthContext();
         } else {
+          clearState();
+          setIsLoading(false);
+        }
+      } else if (event === 'TOKEN_REFRESHED') {
+        if (!session) {
           clearState();
           setIsLoading(false);
         }
