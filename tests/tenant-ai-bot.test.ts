@@ -320,4 +320,33 @@ describe('Phase 17 — Comprehensive Tenant AI Bot Test Suite', () => {
     expect(body).not.toHaveProperty('systemPrompt');
     expect(body).not.toHaveProperty('accessToken');
   });
+
+  it('18. Current Custom Instructions take precedence and override old assistant turn styles in existing conversations', async () => {
+    vi.spyOn(db, 'getAISettings').mockResolvedValue({
+      ...mockAiSettingsA,
+      ai_enabled: true,
+      emoji_usage: 'none',
+      custom_instructions: 'less formal tone, natural but respectful, NO emojis, avoid excessive exclamation marks',
+    });
+    vi.spyOn(db, 'getKnowledgeBase').mockResolvedValue(mockKbA);
+    vi.spyOn(db, 'getMenu').mockResolvedValue(mockMenuA);
+
+    // Old conversation with formal & emoji-heavy assistant history
+    vi.spyOn(db, 'getMessages').mockResolvedValue([
+      { id: 'm1', conversation_id: 'conv_old', tenant_id: tenantA, sender_type: 'customer', content: 'Goedemorgen!', sanitized_content: 'Goedemorgen!', status: 'received', created_at: new Date().toISOString() },
+      { id: 'm2', conversation_id: 'conv_old', tenant_id: tenantA, sender_type: 'ai', content: 'Goedemorgen gewaardeerde klant! ☕😊 Van harte welkom!! Hoe kunnen wij u vandaag van dienst zijn? ✨', sanitized_content: 'Goedemorgen gewaardeerde klant! ☕😊 Van harte welkom!! Hoe kunnen wij u vandaag van dienst zijn? ✨', status: 'auto_replied', created_at: new Date().toISOString() },
+    ]);
+
+    const context = await buildTenantAIContext({
+      tenantId: tenantA,
+      customerMessage: 'Wat zijn de openingsuren?',
+      conversationId: 'conv_old',
+    });
+
+    const systemMessage = context.messages.find(m => m.role === 'system');
+    expect(systemMessage).toBeDefined();
+    expect(systemMessage?.content).toContain('CURRENT STYLE OVERRIDE & IN-CONTEXT DEMONSTRATION RULES');
+    expect(systemMessage?.content).toContain('STRICT EMOJI RULE: Do NOT use any emojis or emoticons');
+    expect(systemMessage?.content).toContain('Custom Tenant Instructions: less formal tone, natural but respectful, NO emojis');
+  });
 });
