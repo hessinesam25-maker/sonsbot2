@@ -343,21 +343,46 @@ export const db = {
     return data || [];
   },
 
-  addMenuItem: async (item: Omit<MenuItem, 'id' | 'created_at'>, tenantId: string = DEFAULT_TENANT_ID) => {
+  addMenuItem: async (item: Partial<MenuItem>, tenantId: string = DEFAULT_TENANT_ID) => {
     const backend = getDbClient();
-    const { data } = await backend
+    const targetTenantId = item.tenant_id || tenantId;
+
+    const payload: Record<string, any> = {
+      tenant_id: targetTenantId,
+      category: item.category || 'General',
+      name: item.name || 'Menu Item',
+      price: typeof item.price === 'number' ? item.price : Number(item.price || 0),
+      description: item.description || '',
+      ingredients: Array.isArray(item.ingredients) ? item.ingredients : [],
+      is_vegetarian: Boolean(item.is_vegetarian),
+      is_vegan: Boolean(item.is_vegan),
+      approved_allergens: Array.isArray(item.approved_allergens) ? item.approved_allergens : [],
+      is_available: item.is_available ?? true,
+    };
+
+    if (item.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item.id)) {
+      payload.id = item.id;
+    }
+
+    const { data, error } = await backend
       .from('menu_items')
-      .insert({ ...item, tenant_id: item.tenant_id || tenantId })
+      .insert(payload)
       .select()
       .single();
+
+    if (error) {
+      console.error('[DB_MENU_INSERT_ERROR]', error);
+    }
     return data;
   },
 
   updateMenuItem: async (id: string, updates: Partial<MenuItem>) => {
     const backend = getDbClient();
+    const payload = { ...updates };
+    delete (payload as any).id;
     const { data } = await backend
       .from('menu_items')
-      .update(updates)
+      .update(payload)
       .eq('id', id)
       .select()
       .single();
