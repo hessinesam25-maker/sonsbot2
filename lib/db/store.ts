@@ -695,13 +695,13 @@ export const db = {
 
     if (error) {
       console.error('[UPDATE_AI_SETTINGS_ERROR]', error);
-      if (process.env.NODE_ENV === 'test' || error.code === '23503' || error.code === '42501') {
+      if (process.env.NODE_ENV === 'test') {
         const existing = await db.getAISettings(targetTenantId);
         const merged = { ...existing, ...dbPayload };
         aiSettingsMemoryStore.set(targetTenantId, merged);
         return merged;
       }
-      throw new Error(`Failed to update AI settings: ${error.message}`);
+      throw new Error(`Failed to update AI settings in database: ${error.message}`);
     }
 
     if (data) {

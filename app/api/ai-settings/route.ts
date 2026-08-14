@@ -175,25 +175,22 @@ export async function PUT(req: NextRequest) {
     if (body.fallback_behavior !== undefined) dbPayload.fallback_behavior = body.fallback_behavior;
     else if (body.fallbackBehavior !== undefined) dbPayload.fallback_behavior = body.fallbackBehavior;
 
-    await db.updateAISettings(dbPayload, targetTenantId);
-
-    // Re-fetch persisted row from server database to enforce DB truth
-    const verified = await db.getAISettings(targetTenantId);
+    const updated = await db.updateAISettings(dbPayload, targetTenantId);
 
     await db.addAuditLog({
       event_type: 'AI_SETTINGS_UPDATED',
       actor_type: 'user',
       tenant_id: targetTenantId,
       details: { 
-        ai_enabled: verified?.ai_enabled, 
-        tone: verified?.tone, 
-        primary_language: verified?.primary_language 
+        ai_enabled: updated?.ai_enabled, 
+        tone: updated?.tone, 
+        primary_language: updated?.primary_language 
       },
     });
 
     return NextResponse.json({
       success: true,
-      settings: verified,
+      settings: updated,
     });
   } catch (error: any) {
     console.error('Error updating AI settings:', error);
