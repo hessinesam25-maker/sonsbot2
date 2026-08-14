@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 import { verifyMetaSignature, verifyMetaWebhookChallenge } from '../lib/security/signatures';
 import { InstagramConnector } from '../lib/connectors/instagram';
 import { GET } from '../app/api/webhooks/instagram/route';
+import { db } from '../lib/db/store';
 
 describe('Meta Webhooks & Signature Validation Test Suite', () => {
   const appSecret = 'test_meta_app_secret_12345';
@@ -12,9 +13,39 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
 
   beforeEach(() => {
     process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = 'test_webhook_verify_token_2026';
+    vi.spyOn(db, 'getConnections').mockResolvedValue([]);
+    vi.spyOn(db, 'getConversations').mockResolvedValue([]);
+    vi.spyOn(db, 'createConversation').mockImplementation(async (conv: any) => ({
+      id: crypto.randomUUID(),
+      status: 'open',
+      human_takeover: false,
+      auto_reply_enabled: true,
+      ...conv,
+      created_at: new Date().toISOString(),
+    }));
+    vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+    vi.spyOn(db, 'addMessage').mockImplementation(async (msg: any) => ({
+      id: crypto.randomUUID(),
+      ...msg,
+      created_at: new Date().toISOString(),
+    }));
+    vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+      id: 'rules_default',
+      tenant_id: '11111111-1111-1111-1111-111111111111',
+      min_confidence_score: 0.85,
+      max_public_replies_per_hour: 20,
+      auto_reply_positive_comments: true,
+      auto_reply_factual_questions: true,
+      never_reply_complaints: true,
+      hide_spam: true,
+      ai_tone: 'friendly_warm',
+      default_dm_reply: 'Welkom! Hoe kunnen we u vandaag helpen?',
+      updated_at: new Date().toISOString(),
+    });
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (originalEnvToken !== undefined) {
       process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = originalEnvToken;
     } else {
@@ -206,6 +237,25 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
           updated_at: new Date().toISOString(),
         } as any
       ]);
+      vi.spyOn(db, 'getConversations').mockResolvedValue([]);
+      vi.spyOn(db, 'createConversation').mockResolvedValue({
+        id: '11111111-1111-1111-1111-111111111111',
+        tenant_id: '11111111-1111-1111-1111-111111111111',
+        platform: 'instagram',
+        channel_type: 'dm',
+        external_id: 'cust_888',
+        customer_id: 'cust_888',
+        status: 'open',
+        human_takeover: false,
+        auto_reply_enabled: true,
+        created_at: new Date().toISOString(),
+      } as any);
+      vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+      vi.spyOn(db, 'addMessage').mockImplementation(async (msg: any) => ({
+        id: crypto.randomUUID(),
+        ...msg,
+        created_at: new Date().toISOString(),
+      }));
 
       const mockPayload = {
         object: 'instagram',
@@ -419,7 +469,11 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
         error: 'Unsupported request or invalid recipient',
       });
 
-      const addMessageSpy = vi.spyOn(db, 'addMessage').mockResolvedValue(null);
+      const addMessageSpy = vi.spyOn(db, 'addMessage').mockImplementation(async (msg: any) => ({
+        id: crypto.randomUUID(),
+        ...msg,
+        created_at: new Date().toISOString(),
+      }));
 
       const mockPayload = {
         object: 'instagram',
@@ -540,7 +594,11 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       const getConvSpy = vi.spyOn(db, 'getConversations').mockResolvedValueOnce([]).mockResolvedValue([mockConv as any]);
       const createConvSpy = vi.spyOn(db, 'createConversation').mockResolvedValue(mockConv as any);
       const verifyConvSpy = vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
-      const addMsgSpy = vi.spyOn(db, 'addMessage');
+      const addMsgSpy = vi.spyOn(db, 'addMessage').mockImplementation(async (msg: any) => ({
+        id: crypto.randomUUID(),
+        ...msg,
+        created_at: new Date().toISOString(),
+      }));
 
       const firstPayload = {
         object: 'instagram',
