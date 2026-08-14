@@ -69,7 +69,8 @@ describe('Auth Hydration & Multi-Tenant Authorization Security Suite', () => {
     const res = await getAiSettings(req);
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.tenant_id).toBe('11111111-1111-1111-1111-111111111111');
+    const settingsObj = data.settings || data;
+    expect(settingsObj.tenant_id).toBe('11111111-1111-1111-1111-111111111111');
   });
 
   it('5. unauthenticated request to /api/auth/me returns 401', async () => {

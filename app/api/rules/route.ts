@@ -5,6 +5,13 @@ import { db } from '@/lib/db/store';
 import { AutomationRules } from '@/lib/db/types';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 
 async function authenticateAndAuthorize(req: NextRequest, targetTenantId?: string, isWriteOperation: boolean = false) {
   const backend = getBackendSupabaseClient();
@@ -60,7 +67,7 @@ async function authenticateAndAuthorize(req: NextRequest, targetTenantId?: strin
   }
 
   if (isPlatformAdmin) {
-    return { isPlatformAdmin: true, tenantId: targetTenantId || tenantUser?.tenant_id || '1029a20d-1342-42fa-87c2-c0fef3cceeaf' };
+    return { isPlatformAdmin: true, tenantId: targetTenantId || tenantUser?.tenant_id };
   }
 
   if (!tenantUser) {
@@ -86,26 +93,26 @@ async function authenticateAndAuthorize(req: NextRequest, targetTenantId?: strin
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const requestedTenantId = searchParams.get('tenantId') || undefined;
+    const requestedTenantId = searchParams.get('tenantId') || searchParams.get('tenant_id') || undefined;
 
     const authResult = await authenticateAndAuthorize(req, requestedTenantId, false);
     if (authResult.status && authResult.error) {
-      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers: NO_CACHE_HEADERS });
     }
 
     const tenantId = authResult.tenantId;
     if (!tenantId) {
-      return NextResponse.json({ error: 'Tenant ID required' }, { status: 400 });
+      return NextResponse.json({ error: 'Tenant ID required' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
 
     const rules = await db.getAutomationRules(tenantId);
     return NextResponse.json({
       success: true,
       rules,
-    });
+    }, { headers: NO_CACHE_HEADERS });
   } catch (err: any) {
     console.error('[GET_AUTOMATION_RULES_API_ERROR]', err);
-    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500, headers: NO_CACHE_HEADERS });
   }
 }
 
@@ -116,12 +123,12 @@ export async function PUT(req: NextRequest) {
 
     const authResult = await authenticateAndAuthorize(req, requestedTenantId, true);
     if (authResult.status && authResult.error) {
-      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers: NO_CACHE_HEADERS });
     }
 
     const tenantId = authResult.tenantId;
     if (!tenantId) {
-      return NextResponse.json({ error: 'Tenant ID required' }, { status: 400 });
+      return NextResponse.json({ error: 'Tenant ID required' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
 
     // Explicitly build DB payload with valid database columns ONLY (never spread tenantId)
@@ -159,29 +166,27 @@ export async function PUT(req: NextRequest) {
     if (body.hide_spam !== undefined) dbPayload.hide_spam = body.hide_spam;
     if (body.ai_tone !== undefined) dbPayload.ai_tone = body.ai_tone;
 
-    await db.updateAutomationRules(dbPayload, tenantId);
+    const updated = await db.updateAutomationRules(dbPayload, tenantId);
 
     // Re-fetch persisted row from database to enforce ground truth
-    const verified = await db.getAutomationRules(tenantId);
-
     await db.addAuditLog({
       tenant_id: tenantId,
       event_type: 'AUTOMATION_RULES_UPDATED',
       actor_type: 'user',
       details: {
-        static_dm_enabled: verified?.static_dm_enabled,
-        default_dm_reply: verified?.default_dm_reply,
-        static_comment_enabled: verified?.static_comment_enabled,
-        default_comment_reply: verified?.default_comment_reply,
+        static_dm_enabled: updated?.static_dm_enabled,
+        default_dm_reply: updated?.default_dm_reply,
+        static_comment_enabled: updated?.static_comment_enabled,
+        default_comment_reply: updated?.default_comment_reply,
       },
     });
 
     return NextResponse.json({
       success: true,
-      rules: verified,
-    });
+      rules: updated,
+    }, { headers: NO_CACHE_HEADERS });
   } catch (err: any) {
     console.error('[PUT_AUTOMATION_RULES_API_ERROR]', err);
-    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500, headers: NO_CACHE_HEADERS });
   }
 }

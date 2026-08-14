@@ -49,37 +49,44 @@ export default function AISettingsPage() {
     hasPlaceholderUsername: false,
   });
 
+  const reqSeqRef = React.useRef<number>(0);
+
   useEffect(() => {
     if (authLoading || !selectedTenantId) return;
 
+    const currentSeq = ++reqSeqRef.current;
     let isMounted = true;
+
     async function loadSettings() {
       setLoading(true);
       setErrorMessage(null);
       try {
         const connState = await db.getInstagramConnectionState(selectedTenantId);
-        if (isMounted) setIgState(connState);
+        if (isMounted && currentSeq === reqSeqRef.current) setIgState(connState);
 
-        const res = await fetch(`/api/ai-settings?tenantId=${encodeURIComponent(selectedTenantId)}`);
+        const res = await fetch(`/api/ai-settings?tenantId=${encodeURIComponent(selectedTenantId)}`, {
+          headers: { 'Cache-Control': 'no-cache, no-store' },
+        });
+
         if (res.ok) {
           const data = await res.json();
           const loadedSettings = data.settings || data;
-          if (isMounted && loadedSettings) {
+          if (isMounted && currentSeq === reqSeqRef.current && loadedSettings && loadedSettings.tenant_id === selectedTenantId) {
             setSettings(loadedSettings);
           }
         } else {
           const errData = await res.json().catch(() => ({}));
-          if (isMounted) {
+          if (isMounted && currentSeq === reqSeqRef.current) {
             setErrorMessage(errData.error || t('aiSettings.loadErrorMessage'));
           }
         }
       } catch (err: any) {
         console.error('Error loading AI Settings:', err);
-        if (isMounted) {
+        if (isMounted && currentSeq === reqSeqRef.current) {
           setErrorMessage(err.message || t('aiSettings.loadErrorMessage'));
         }
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted && currentSeq === reqSeqRef.current) setLoading(false);
       }
     }
     loadSettings();

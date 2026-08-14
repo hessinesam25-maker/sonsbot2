@@ -4,6 +4,13 @@ import { getBackendSupabaseClient } from '@/lib/db/client';
 import { db } from '@/lib/db/store';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 
 async function authenticateAndAuthorize(req: NextRequest, targetTenantId?: string, isWriteOperation: boolean = false) {
   const backend = getBackendSupabaseClient();
@@ -108,10 +115,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       settings,
-    });
+    }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('Error fetching AI settings:', error);
-    return NextResponse.json({ error: error.message || 'Failed to fetch AI settings' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to fetch AI settings' }, { status: 500, headers: NO_CACHE_HEADERS });
   }
 }
 
@@ -135,13 +142,13 @@ export async function PUT(req: NextRequest) {
 
     const authResult = await authenticateAndAuthorize(req, requestedTenantId, true);
     if (authResult.status && authResult.error) {
-      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status, headers: NO_CACHE_HEADERS });
     }
 
     const targetTenantId = authResult.isPlatformAdmin ? (requestedTenantId || authResult.tenantId) : authResult.tenantId;
 
     if (!targetTenantId) {
-      return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 });
+      return NextResponse.json({ error: 'tenant_id is required' }, { status: 400, headers: NO_CACHE_HEADERS });
     }
 
     const dbPayload: Partial<import('@/lib/db/types').AISettings> = {};
@@ -191,9 +198,9 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({
       success: true,
       settings: updated,
-    });
+    }, { headers: NO_CACHE_HEADERS });
   } catch (error: any) {
     console.error('Error updating AI settings:', error);
-    return NextResponse.json({ error: error.message || 'Failed to update AI settings' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to update AI settings' }, { status: 500, headers: NO_CACHE_HEADERS });
   }
 }

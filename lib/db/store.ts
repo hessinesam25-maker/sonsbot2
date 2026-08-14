@@ -709,7 +709,11 @@ export const db = {
       return data;
     }
 
-    return payload;
+    if (process.env.NODE_ENV === 'test') {
+      return payload;
+    }
+
+    throw new Error(`Database upsert succeeded but no persisted row was returned for tenant ${targetTenantId}`);
   },
 
   // Real Supabase Conversations

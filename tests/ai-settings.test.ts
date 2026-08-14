@@ -417,6 +417,42 @@ describe('Phase 1: Tenant-Scoped AI Settings Test Suite', () => {
     const updatedOFF = saveJsonOFF.settings || saveJsonOFF;
     expect(updatedOFF.ai_enabled).toBe(false);
   });
+
+  it('K. GET/PUT no-cache headers & immediate GET read consistency after PUT write', async () => {
+    // 1. PUT true
+    const putReq = new NextRequest('http://localhost:3000/api/ai-settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+      body: JSON.stringify({ tenant_id: tenantA_ID, ai_enabled: true }),
+    });
+    const putRes = await PUT(putReq);
+    expect(putRes.status).toBe(200);
+    expect(putRes.headers.get('Cache-Control')).toContain('no-store');
+
+    const putData = await putRes.json();
+    expect(putData.settings.ai_enabled).toBe(true);
+
+    // 2. Immediate GET after PUT returns exact same DB state with no-cache headers
+    const getReq = new NextRequest(`http://localhost:3000/api/ai-settings?tenantId=${tenantA_ID}`, {
+      headers: {
+        'Authorization': 'Bearer test_token',
+        'x-test-tenant-id': tenantA_ID,
+        'x-test-role': 'owner',
+      },
+    });
+    const getRes = await GET(getReq);
+    expect(getRes.status).toBe(200);
+    expect(getRes.headers.get('Cache-Control')).toContain('no-store');
+
+    const getData = await getRes.json();
+    expect(getData.settings.ai_enabled).toBe(true);
+    expect(getData.settings.tenant_id).toBe(tenantA_ID);
+  });
 });
 
 

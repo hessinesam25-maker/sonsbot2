@@ -87,12 +87,10 @@ describe('Phase 17 — Comprehensive Tenant AI Bot Test Suite', () => {
     vi.spyOn(db, 'getKnowledgeBase').mockResolvedValue(mockKbA);
     vi.spyOn(db, 'getMenu').mockResolvedValue(mockMenuA);
 
-    const context = await buildTenantAIContext({
+    await expect(buildTenantAIContext({
       tenantId: tenantA,
       customerMessage: 'What time do you close?',
-    });
-
-    expect(context.aiEnabled).toBe(false);
+    })).rejects.toThrow('Master AI toggle is disabled');
   });
 
   // 2. AI enabled loads correct tenant settings
