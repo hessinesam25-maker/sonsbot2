@@ -219,13 +219,21 @@ export class InstagramConnector implements PlatformConnector {
     }
   }
 
-  async sendCommentReply(options: SendCommentReplyOptions): Promise<{ success: boolean; replyId?: string; error?: string }> {
+  async sendCommentReply(options: SendCommentReplyOptions): Promise<{
+    success: boolean;
+    replyId?: string;
+    httpStatus?: number;
+    errorCode?: number;
+    errorType?: string;
+    errorSubcode?: number;
+    error?: string;
+  }> {
     const url = `https://graph.instagram.com/${this.apiVersion}/${options.commentId}/replies`;
 
     try {
       if (!options.accessToken || options.accessToken.includes('mock')) {
         console.log(`[InstagramConnector] Mock Comment reply to ${options.commentId}: ${options.content}`);
-        return { success: true, replyId: `mock_ig_rpl_${Date.now()}` };
+        return { success: true, replyId: `mock_ig_rpl_${Date.now()}`, httpStatus: 200 };
       }
 
       const res = await fetch(url, {
@@ -239,14 +247,21 @@ export class InstagramConnector implements PlatformConnector {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        return { success: false, error: data.error?.message || 'Instagram Graph API comment reply failed' };
+        return {
+          success: false,
+          httpStatus: res.status,
+          errorCode: data.error?.code,
+          errorType: data.error?.type,
+          errorSubcode: data.error?.error_subcode,
+          error: data.error?.message || `Instagram Graph API comment reply failed with status ${res.status}`,
+        };
       }
 
-      return { success: true, replyId: data.id };
+      return { success: true, replyId: data.id, httpStatus: res.status };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Network error' };
+      return { success: false, httpStatus: 500, error: err.message || 'Network error' };
     }
   }
 }

@@ -583,6 +583,7 @@ export async function POST(req: NextRequest) {
 
         let isAutoReplied = false;
         let replyContent: string | undefined = undefined;
+        let replySourceType: 'deepseek_ai' | 'fixed_comment_reply' | 'none' = 'none';
         let classification: any = 'neutral';
 
         if (isAiEnabledForComments) {
@@ -599,24 +600,41 @@ export async function POST(req: NextRequest) {
             if (deepSeekRes.success && deepSeekRes.content) {
               replyContent = deepSeekRes.content;
               classification = 'question';
+              replySourceType = 'deepseek_ai';
             } else {
               console.warn('[COMMENT_AI_FALLBACK_WARN]', `DeepSeek generation failed: ${deepSeekRes.error}. Checking static Comment fallback.`);
+              await db.addAuditLog({
+                tenant_id: authoritativeTenantId,
+                event_type: 'AI_AUTO_REPLY_FALLBACK',
+                actor_type: 'ai',
+                details: { comment_id: event.externalId, reason: deepSeekRes.error || 'DeepSeek generation failed' },
+              });
               if (staticCommentEnabled && fixedCommentReply) {
                 replyContent = fixedCommentReply;
+                replySourceType = 'fixed_comment_reply';
               }
             }
-          } catch (err) {
+          } catch (err: any) {
             console.warn('[COMMENT_AI_EXCEPTION]', err);
+            await db.addAuditLog({
+              tenant_id: authoritativeTenantId,
+              event_type: 'AI_AUTO_REPLY_FALLBACK',
+              actor_type: 'ai',
+              details: { comment_id: event.externalId, reason: err?.message || 'AI Context exception' },
+            });
             if (staticCommentEnabled && fixedCommentReply) {
               replyContent = fixedCommentReply;
+              replySourceType = 'fixed_comment_reply';
             }
           }
         } else if (staticCommentEnabled && fixedCommentReply) {
           replyContent = fixedCommentReply;
+          replySourceType = 'fixed_comment_reply';
         }
 
+        let sendResult: any = null;
         if (decryptedToken && replyContent) {
-          const sendResult = await connector.sendCommentReply({
+          sendResult = await connector.sendCommentReply({
             commentId: event.externalId,
             content: replyContent,
             accessToken: decryptedToken,
@@ -626,6 +644,20 @@ export async function POST(req: NextRequest) {
             isAutoReplied = true;
           }
         }
+
+        console.info('[COMMENT_AUTO_REPLY_DIAGNOSTIC]', JSON.stringify({
+          incoming_comment: true,
+          ai_master_on: isAiMasterOn,
+          reply_to_comments: aiSettings.reply_to_comments,
+          is_ai_enabled_for_comments: isAiEnabledForComments,
+          static_comment_enabled: staticCommentEnabled,
+          fixed_reply_configured: Boolean(fixedCommentReply),
+          ai_reply_generated: replySourceType === 'deepseek_ai',
+          reply_source_type: replySourceType,
+          send_attempted: Boolean(sendResult),
+          send_success: isAutoReplied,
+          send_error: sendResult?.error || null,
+        }));
 
         await db.addComment({
           tenant_id: authoritativeTenantId,
