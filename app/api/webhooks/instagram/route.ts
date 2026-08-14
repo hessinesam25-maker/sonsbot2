@@ -387,7 +387,12 @@ export async function POST(req: NextRequest) {
 
         const aiSettings = await db.getAISettings(authoritativeTenantId);
         const isAiEnabledForDm = Boolean(conv.auto_reply_enabled && aiSettings.ai_enabled && aiSettings.reply_to_dms);
-        const fixedDmReply = (rules.default_dm_reply && rules.default_dm_reply.trim().length > 0) ? rules.default_dm_reply.trim() : null;
+        
+        const staticDmEnabled = Boolean(rules.static_dm_enabled);
+
+        const fixedDmReply = (rules.default_dm_reply && rules.default_dm_reply.trim().length > 0) 
+          ? rules.default_dm_reply.trim() 
+          : null;
 
         let replyContentToSend: string | null = null;
         let replySourceType: string = 'fixed_dm_reply';
@@ -409,21 +414,28 @@ export async function POST(req: NextRequest) {
                 replyContentToSend = deepSeekRes.content;
                 replySourceType = 'deepseek_ai';
               } else {
-                console.warn('[AI_REPLY_FALLBACK]', `DeepSeek generation failed: ${deepSeekRes.error}. Falling back to static reply.`);
+                console.warn('[AI_REPLY_FALLBACK]', `DeepSeek generation failed: ${deepSeekRes.error}. Checking static DM fallback.`);
                 await db.addAuditLog({
                   tenant_id: authoritativeTenantId,
                   event_type: 'AI_AUTO_REPLY_FALLBACK',
                   actor_type: 'ai',
                   details: { conversation_id: conv.id, reason: deepSeekRes.error || 'DeepSeek generation failed' },
                 });
-                replyContentToSend = fixedDmReply;
+                if (staticDmEnabled && fixedDmReply) {
+                  replyContentToSend = fixedDmReply;
+                  replySourceType = 'fixed_dm_reply';
+                }
               }
             } catch (err: any) {
               console.error('[AI_REPLY_EXCEPTION]', err);
-              replyContentToSend = fixedDmReply;
+              if (staticDmEnabled && fixedDmReply) {
+                replyContentToSend = fixedDmReply;
+                replySourceType = 'fixed_dm_reply';
+              }
             }
-          } else if (conv.auto_reply_enabled && rules.auto_reply_factual_questions !== false) {
+          } else if (conv.auto_reply_enabled && staticDmEnabled && fixedDmReply) {
             replyContentToSend = fixedDmReply;
+            replySourceType = 'fixed_dm_reply';
           }
         }
 
@@ -557,6 +569,12 @@ export async function POST(req: NextRequest) {
         const aiSettings = await db.getAISettings(authoritativeTenantId);
         const isAiEnabledForComments = Boolean(aiSettings.ai_enabled && aiSettings.reply_to_comments);
 
+        const staticCommentEnabled = Boolean(rules.static_comment_enabled);
+
+        const fixedCommentReply = (rules.default_comment_reply && rules.default_comment_reply.trim().length > 0) 
+          ? rules.default_comment_reply.trim() 
+          : null;
+
         let isAutoReplied = false;
         let replyContent: string | undefined = undefined;
         let classification: any = 'neutral';
@@ -575,16 +593,20 @@ export async function POST(req: NextRequest) {
             if (deepSeekRes.success && deepSeekRes.content) {
               replyContent = deepSeekRes.content;
               classification = 'question';
+            } else {
+              console.warn('[COMMENT_AI_FALLBACK_WARN]', `DeepSeek generation failed: ${deepSeekRes.error}. Checking static Comment fallback.`);
+              if (staticCommentEnabled && fixedCommentReply) {
+                replyContent = fixedCommentReply;
+              }
             }
           } catch (err) {
-            console.warn('[COMMENT_AI_FALLBACK_WARN]', err);
+            console.warn('[COMMENT_AI_EXCEPTION]', err);
+            if (staticCommentEnabled && fixedCommentReply) {
+              replyContent = fixedCommentReply;
+            }
           }
-        }
-
-        if (!replyContent) {
-          const aiResponse = generateAIReply(sanitizedText, 'comment', kb, menu, rules);
-          replyContent = aiResponse.suggestedReply;
-          classification = aiResponse.classification;
+        } else if (staticCommentEnabled && fixedCommentReply) {
+          replyContent = fixedCommentReply;
         }
 
         if (decryptedToken && replyContent) {

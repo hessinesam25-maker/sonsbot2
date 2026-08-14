@@ -281,6 +281,9 @@ export interface AutomationRules {
   hide_spam: boolean;
   ai_tone: string;
   default_dm_reply?: string;
+  static_dm_enabled?: boolean;
+  static_comment_enabled?: boolean;
+  default_comment_reply?: string;
   updated_at: string;
 }
 

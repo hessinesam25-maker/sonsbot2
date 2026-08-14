@@ -64,9 +64,11 @@ export function getBackendSupabaseClient() {
   const envSecretKey = process.env.SUPABASE_SECRET_KEY;
   const envServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const sonsbotSecretPresent = Boolean(envSonsbotSecret && envSonsbotSecret.trim().length > 0);
-  const secretKeyPresent = Boolean(envSecretKey && envSecretKey.trim().length > 0);
-  const legacyServiceKeyPresent = Boolean(envServiceKey && envServiceKey.trim().length > 0);
+  const isRealKey = (val: string | undefined | null) => Boolean(val && val.trim().length > 0 && !val.includes('[SENSITIVE]'));
+
+  const sonsbotSecretPresent = isRealKey(envSonsbotSecret);
+  const secretKeyPresent = isRealKey(envSecretKey);
+  const legacyServiceKeyPresent = isRealKey(envServiceKey);
 
   let selectedKey: string;
   let selectedKeySource: 'sonsbot_supabase_secret' | 'supabase_secret_key' | 'service_role_env' | 'anon_fallback';
