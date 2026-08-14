@@ -99,7 +99,10 @@ export async function GET(req: NextRequest) {
     }
 
     const rules = await db.getAutomationRules(tenantId);
-    return NextResponse.json(rules);
+    return NextResponse.json({
+      success: true,
+      rules,
+    });
   } catch (err: any) {
     console.error('[GET_AUTOMATION_RULES_API_ERROR]', err);
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
@@ -173,7 +176,10 @@ export async function PUT(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(verified);
+    return NextResponse.json({
+      success: true,
+      rules: verified,
+    });
   } catch (err: any) {
     console.error('[PUT_AUTOMATION_RULES_API_ERROR]', err);
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });

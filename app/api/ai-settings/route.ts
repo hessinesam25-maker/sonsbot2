@@ -105,7 +105,10 @@ export async function GET(req: NextRequest) {
     }
 
     const settings = await db.getAISettings(tenantId);
-    return NextResponse.json(settings);
+    return NextResponse.json({
+      success: true,
+      settings,
+    });
   } catch (error: any) {
     console.error('Error fetching AI settings:', error);
     return NextResponse.json({ error: error.message || 'Failed to fetch AI settings' }, { status: 500 });
@@ -188,7 +191,10 @@ export async function PUT(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(verified);
+    return NextResponse.json({
+      success: true,
+      settings: verified,
+    });
   } catch (error: any) {
     console.error('Error updating AI settings:', error);
     return NextResponse.json({ error: error.message || 'Failed to update AI settings' }, { status: 500 });
