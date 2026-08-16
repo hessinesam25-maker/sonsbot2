@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { 
   Inbox, MessageSquare, BookOpen, Utensils, 
   Sliders, Share2, FileText, BarChart3, Coffee, 
-  ShieldCheck, LogOut, Building2, HelpCircle, Image, MapPin, Bot, UserCheck, TrendingUp
+  ShieldCheck, LogOut, Building2, HelpCircle, Image, MapPin, Bot, UserCheck, TrendingUp, Activity
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -19,6 +19,7 @@ export const Sidebar: React.FC = () => {
 
   const allNavItems = [
     { href: '/dashboard/ai-settings', label: t('nav.aiSettings'), icon: Bot },
+    { href: '/dashboard/ai-logs', label: t('nav.aiLogs') || (direction === 'rtl' ? 'سجل الذكاء الاصطناعي' : 'AI Logs'), icon: Activity },
     { href: '/dashboard/rules', label: t('nav.rules'), icon: Sliders },
     { href: '/dashboard/knowledge', label: t('nav.knowledge'), icon: BookOpen },
     { href: '/dashboard/menu', label: t('nav.menu'), icon: Utensils },
