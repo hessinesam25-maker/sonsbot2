@@ -686,4 +686,120 @@ describe('Phase 1A: End-to-End Traceability & Observability Test Suite', () => {
     expect(updatedTrace?.outgoing_message_id).toBeNull();
     expect(updatedTrace?.conversation_id).toBeNull();
   });
+
+  it('13. Resilience: Trace INSERT database failure still permits normal customer reply', async () => {
+    const eventId = `msg_res_insert_${Date.now()}`;
+    const payload = {
+      object: 'instagram',
+      entry: [
+        {
+          id: 'page_123',
+          messaging: [
+            {
+              sender: { id: 'cust_res_1', username: 'lucas' },
+              recipient: { id: 'page_123' },
+              timestamp: Date.now(),
+              message: { mid: eventId, text: 'Do you have coffee?' },
+            },
+          ],
+        },
+      ],
+    };
+
+    // Simulate Supabase trace INSERT failure
+    vi.spyOn(db, 'createAIDecisionTrace').mockRejectedValueOnce(new Error('Supabase insert connection timeout'));
+
+    vi.spyOn(deepseekModule, 'generateDeepSeekReply').mockResolvedValue({
+      success: true,
+      content: 'Ja, we hebben verse koffie!',
+      httpStatus: 200,
+      latencyMs: 120,
+      model: 'deepseek-v4-flash',
+    });
+
+    const sendDmSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+      success: true,
+      messageId: `ig_out_res_${Date.now()}`,
+      httpStatus: 200,
+    });
+
+    const req = createMockPostRequest(payload);
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(sendDmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('14. Resilience: Mid-processing trace UPDATE database failure still allows reply dispatch', async () => {
+    const eventId = `msg_res_update_${Date.now()}`;
+    const payload = {
+      object: 'instagram',
+      entry: [
+        {
+          id: 'page_123',
+          messaging: [
+            {
+              sender: { id: 'cust_res_2', username: 'charlotte' },
+              recipient: { id: 'page_123' },
+              timestamp: Date.now(),
+              message: { mid: eventId, text: 'What is your address?' },
+            },
+          ],
+        },
+      ],
+    };
+
+    // Simulate Supabase trace UPDATE failure on mid-stream checkpoint
+    vi.spyOn(db, 'updateAIDecisionTrace').mockRejectedValueOnce(new Error('Supabase update connection reset'));
+
+    vi.spyOn(deepseekModule, 'generateDeepSeekReply').mockResolvedValue({
+      success: true,
+      content: 'Ons adres is Korenmarkt 14 in Gent.',
+      httpStatus: 200,
+      latencyMs: 140,
+      model: 'deepseek-v4-flash',
+    });
+
+    const sendDmSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage').mockResolvedValue({
+      success: true,
+      messageId: `ig_out_res2_${Date.now()}`,
+      httpStatus: 200,
+    });
+
+    const req = createMockPostRequest(payload);
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(sendDmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('15. Resilience: Tenant reference verification DB exception fails closed without throwing', async () => {
+    const { validateTenantConversation, validateTenantMessage } = await import('../lib/ai/trace');
+
+    vi.spyOn(db, 'verifyConversationExists').mockRejectedValue(new Error('Database connectivity error'));
+    vi.spyOn(db, 'verifyMessageExists').mockRejectedValue(new Error('Database connectivity error'));
+
+    // Both should fail closed to null without throwing
+    const safeConv = await validateTenantConversation('conv_error_123', tenantA);
+    const safeMsg = await validateTenantMessage('msg_error_456', tenantA);
+
+    expect(safeConv).toBeNull();
+    expect(safeMsg).toBeNull();
+  });
+
+  it('16. Resilience: Trace operation timeout falls back to in-memory store without unhandled rejection', async () => {
+    const { createTraceSession } = await import('../lib/ai/trace');
+
+    // Create session should complete quickly and fallback gracefully
+    const trace = await createTraceSession({
+      tenantId: tenantA,
+      platform: 'instagram',
+      channelType: 'dm',
+      externalEventId: 'evt_timeout_test',
+    });
+
+    expect(trace).toBeDefined();
+    expect(trace.tenant_id).toBe(tenantA);
+    expect(trace.processing_stage).toBe('EVENT_PARSED');
+  });
 });

@@ -285,10 +285,6 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      await updateTraceSession(traceId, authoritativeTenantId, {
-        processing_stage: 'DUPLICATE_CHECKED',
-      });
-
       const kb = await db.getKnowledgeBase(authoritativeTenantId);
       const menu = await db.getMenu(authoritativeTenantId);
       const rules = await db.getAutomationRules(authoritativeTenantId);
@@ -339,7 +335,7 @@ export async function POST(req: NextRequest) {
               failure_reason: 'Duplicate DM message ID already processed in messages table',
               final_outcome: 'NO_REPLY_DUPLICATE',
               total_latency_ms: Date.now() - eventStartTime,
-            });
+            }, { trustedReferences: true });
             continue;
           }
         } else {
@@ -394,11 +390,6 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        await updateTraceSession(traceId, authoritativeTenantId, {
-          conversation_id: conv.id,
-          processing_stage: 'CONVERSATION_RESOLVED',
-        });
-
         // Add incoming customer message under authoritative tenant
         let insertedMsg: any = null;
         let msgInsertError: string | null = null;
@@ -415,11 +406,6 @@ export async function POST(req: NextRequest) {
         } catch (err: any) {
           msgInsertError = err?.message ? err.message.slice(0, 100) : 'addMessage_failed';
         }
-
-        await updateTraceSession(traceId, authoritativeTenantId, {
-          incoming_message_id: insertedMsg?.id || null,
-          processing_stage: 'MESSAGE_PERSISTED',
-        });
 
         console.info('[MESSAGE_ID_DIAGNOSTIC]', JSON.stringify({
           trace_id: traceId,
@@ -482,10 +468,6 @@ export async function POST(req: NextRequest) {
         let replyContentToSend: string | null = null;
         let replySourceType: string = 'fixed_dm_reply';
 
-        await updateTraceSession(traceId, authoritativeTenantId, {
-          processing_stage: 'AI_ELIGIBILITY_CHECKED',
-        });
-
         if (!conv.human_takeover) {
           if (isAiEnabledForDm) {
             try {
@@ -493,24 +475,6 @@ export async function POST(req: NextRequest) {
                 tenantId: authoritativeTenantId,
                 customerMessage: event.content,
                 conversationId: conv.id,
-              });
-
-              await updateTraceSession(traceId, authoritativeTenantId, {
-                processing_stage: 'AI_CONTEXT_BUILT',
-                retrieval_summary: {
-                  matched_topics: aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched || [],
-                  menu_items_matched_count: aiContext.retrievedData?.relevantMenuItems?.length || 0,
-                  faqs_matched_count: aiContext.retrievedData?.matchedFaqs?.length || 0,
-                },
-                retrieval_result_count: (aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched?.length || 0) +
-                  (aiContext.retrievedData?.relevantMenuItems?.length || 0) +
-                  (aiContext.retrievedData?.matchedFaqs?.length || 0),
-                history_message_count: aiContext.messages?.filter(m => m.role !== 'system')?.length || 0,
-              });
-
-              await updateTraceSession(traceId, authoritativeTenantId, {
-                processing_stage: 'AI_GENERATION_STARTED',
-                generation_attempted: true,
               });
 
               const deepSeekRes = await generateDeepSeekReply(aiContext.messages, {
@@ -521,30 +485,34 @@ export async function POST(req: NextRequest) {
                 replyContentToSend = deepSeekRes.content;
                 replySourceType = 'deepseek_ai';
 
+                // Checkpoint 2: Processing Checkpoint (AI Generation Succeeded)
                 await updateTraceSession(traceId, authoritativeTenantId, {
+                  conversation_id: conv.id,
+                  incoming_message_id: insertedMsg?.id || null,
                   processing_stage: 'AI_GENERATION_COMPLETED',
+                  retrieval_summary: {
+                    matched_topics: aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched || [],
+                    menu_items_matched_count: aiContext.retrievedData?.relevantMenuItems?.length || 0,
+                    faqs_matched_count: aiContext.retrievedData?.matchedFaqs?.length || 0,
+                  },
+                  retrieval_result_count: (aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched?.length || 0) +
+                    (aiContext.retrievedData?.relevantMenuItems?.length || 0) +
+                    (aiContext.retrievedData?.matchedFaqs?.length || 0),
+                  history_message_count: aiContext.messages?.filter(m => m.role !== 'system')?.length || 0,
+                  generation_attempted: true,
                   generation_success: true,
                   generation_latency_ms: deepSeekRes.latencyMs || null,
                   ai_model: deepSeekRes.model || 'deepseek-v4-flash',
                   tokens_prompt: deepSeekRes.usage?.promptTokens || null,
                   tokens_completion: deepSeekRes.usage?.completionTokens || null,
                   tokens_total: deepSeekRes.usage?.totalTokens || null,
-                });
+                }, { trustedReferences: true });
               } else {
                 console.warn('[AI_REPLY_FALLBACK]', `DeepSeek generation failed: ${deepSeekRes.error}. Checking static DM fallback.`);
                 
                 const isTimeout = deepSeekRes.httpStatus === 408 || deepSeekRes.error?.includes('timed out');
                 const isRateLimit = deepSeekRes.httpStatus === 429;
                 const failureCategory = isTimeout ? 'AI_PROVIDER_TIMEOUT' : (isRateLimit ? 'AI_PROVIDER_RATE_LIMIT' : 'AI_PROVIDER_ERROR');
-
-                await updateTraceSession(traceId, authoritativeTenantId, {
-                  processing_stage: 'AI_GENERATION_COMPLETED',
-                  generation_success: false,
-                  generation_latency_ms: deepSeekRes.latencyMs || null,
-                  ai_model: deepSeekRes.model || 'deepseek-v4-flash',
-                  failure_category: failureCategory,
-                  failure_reason: deepSeekRes.error || 'DeepSeek generation failed',
-                });
 
                 await db.addAuditLog({
                   tenant_id: authoritativeTenantId,
@@ -557,44 +525,89 @@ export async function POST(req: NextRequest) {
                   replyContentToSend = fixedDmReply;
                   replySourceType = 'fixed_dm_reply';
 
+                  // Checkpoint 2: Processing Checkpoint (Fallback Selected)
                   await updateTraceSession(traceId, authoritativeTenantId, {
+                    conversation_id: conv.id,
+                    incoming_message_id: insertedMsg?.id || null,
                     processing_stage: 'FALLBACK_SELECTED',
+                    retrieval_summary: {
+                      matched_topics: aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched || [],
+                      menu_items_matched_count: aiContext.retrievedData?.relevantMenuItems?.length || 0,
+                      faqs_matched_count: aiContext.retrievedData?.matchedFaqs?.length || 0,
+                    },
+                    retrieval_result_count: (aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched?.length || 0) +
+                      (aiContext.retrievedData?.relevantMenuItems?.length || 0) +
+                      (aiContext.retrievedData?.matchedFaqs?.length || 0),
+                    history_message_count: aiContext.messages?.filter(m => m.role !== 'system')?.length || 0,
+                    generation_attempted: true,
+                    generation_success: false,
+                    generation_latency_ms: deepSeekRes.latencyMs || null,
+                    ai_model: deepSeekRes.model || 'deepseek-v4-flash',
+                    failure_category: failureCategory,
+                    failure_reason: deepSeekRes.error || 'DeepSeek generation failed',
                     fallback_used: true,
                     fallback_type: 'fixed_dm_reply',
                     fallback_reason: deepSeekRes.error || 'DeepSeek generation failed',
-                  });
+                  }, { trustedReferences: true });
                 } else {
+                  // Terminal exit: AI failed and no fallback available
                   await updateTraceSession(traceId, authoritativeTenantId, {
+                    conversation_id: conv.id,
+                    incoming_message_id: insertedMsg?.id || null,
+                    processing_stage: 'AI_GENERATION_COMPLETED',
+                    retrieval_summary: {
+                      matched_topics: aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched || [],
+                      menu_items_matched_count: aiContext.retrievedData?.relevantMenuItems?.length || 0,
+                      faqs_matched_count: aiContext.retrievedData?.matchedFaqs?.length || 0,
+                    },
+                    retrieval_result_count: (aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched?.length || 0) +
+                      (aiContext.retrievedData?.relevantMenuItems?.length || 0) +
+                      (aiContext.retrievedData?.matchedFaqs?.length || 0),
+                    history_message_count: aiContext.messages?.filter(m => m.role !== 'system')?.length || 0,
+                    generation_attempted: true,
+                    generation_success: false,
+                    generation_latency_ms: deepSeekRes.latencyMs || null,
+                    ai_model: deepSeekRes.model || 'deepseek-v4-flash',
+                    failure_category: failureCategory,
+                    failure_reason: deepSeekRes.error || 'DeepSeek generation failed',
                     fallback_used: false,
                     final_outcome: 'NO_REPLY_NO_FALLBACK',
-                  });
+                    total_latency_ms: Date.now() - eventStartTime,
+                  }, { trustedReferences: true });
                 }
               }
             } catch (err: any) {
               console.error('[AI_REPLY_EXCEPTION]', err);
-
-              await updateTraceSession(traceId, authoritativeTenantId, {
-                processing_stage: 'PROCESSING_FAILED',
-                generation_success: false,
-                failure_category: 'AI_CONTEXT_FAILURE',
-                failure_reason: err?.message || 'AI Context exception',
-              });
 
               if (staticDmEnabled && fixedDmReply) {
                 replyContentToSend = fixedDmReply;
                 replySourceType = 'fixed_dm_reply';
 
                 await updateTraceSession(traceId, authoritativeTenantId, {
+                  conversation_id: conv.id,
+                  incoming_message_id: insertedMsg?.id || null,
                   processing_stage: 'FALLBACK_SELECTED',
+                  generation_attempted: true,
+                  generation_success: false,
+                  failure_category: 'AI_CONTEXT_FAILURE',
+                  failure_reason: err?.message || 'AI Context exception',
                   fallback_used: true,
                   fallback_type: 'fixed_dm_reply',
                   fallback_reason: err?.message || 'Exception during AI context generation',
-                });
+                }, { trustedReferences: true });
               } else {
                 await updateTraceSession(traceId, authoritativeTenantId, {
+                  conversation_id: conv.id,
+                  incoming_message_id: insertedMsg?.id || null,
+                  processing_stage: 'PROCESSING_FAILED',
+                  generation_attempted: true,
+                  generation_success: false,
+                  failure_category: 'AI_CONTEXT_FAILURE',
+                  failure_reason: err?.message || 'AI Context exception',
                   fallback_used: false,
                   final_outcome: 'NO_REPLY_NO_FALLBACK',
-                });
+                  total_latency_ms: Date.now() - eventStartTime,
+                }, { trustedReferences: true });
               }
             }
           } else if (conv.auto_reply_enabled && staticDmEnabled && fixedDmReply) {
@@ -602,11 +615,13 @@ export async function POST(req: NextRequest) {
             replySourceType = 'fixed_dm_reply';
 
             await updateTraceSession(traceId, authoritativeTenantId, {
+              conversation_id: conv.id,
+              incoming_message_id: insertedMsg?.id || null,
               processing_stage: 'FALLBACK_SELECTED',
               fallback_used: true,
               fallback_type: 'fixed_dm_reply',
               fallback_reason: 'AI master toggle or DM reply toggle disabled; static fallback used',
-            });
+            }, { trustedReferences: true });
           }
         }
 
@@ -614,37 +629,41 @@ export async function POST(req: NextRequest) {
         if (conv.human_takeover) {
           blockedReason = 'Human takeover active on conversation';
           await updateTraceSession(traceId, authoritativeTenantId, {
+            conversation_id: conv.id,
+            incoming_message_id: insertedMsg?.id || null,
+            processing_stage: 'MESSAGE_PERSISTED',
+            generation_attempted: false,
             failure_category: 'HUMAN_TAKEOVER',
             failure_reason: blockedReason,
             final_outcome: 'NO_REPLY_HUMAN_TAKEOVER',
             total_latency_ms: Date.now() - eventStartTime,
-          });
+          }, { trustedReferences: true });
         } else if (!conv.auto_reply_enabled) {
           blockedReason = 'DM auto-reply disabled on conversation';
           await updateTraceSession(traceId, authoritativeTenantId, {
+            conversation_id: conv.id,
+            incoming_message_id: insertedMsg?.id || null,
+            processing_stage: 'AI_ELIGIBILITY_CHECKED',
+            generation_attempted: false,
             failure_category: 'AUTO_REPLY_DISABLED',
             failure_reason: blockedReason,
             final_outcome: 'NO_REPLY_AUTO_REPLY_DISABLED',
             total_latency_ms: Date.now() - eventStartTime,
-          });
+          }, { trustedReferences: true });
         } else if (!isAiMasterOn && !staticDmEnabled) {
           blockedReason = 'AI master switch disabled and static fallback disabled';
           await updateTraceSession(traceId, authoritativeTenantId, {
+            conversation_id: conv.id,
+            incoming_message_id: insertedMsg?.id || null,
+            processing_stage: 'AI_ELIGIBILITY_CHECKED',
+            generation_attempted: false,
             failure_category: 'AI_DISABLED',
             failure_reason: blockedReason,
             final_outcome: 'NO_REPLY_AI_DISABLED',
             total_latency_ms: Date.now() - eventStartTime,
-          });
+          }, { trustedReferences: true });
         } else if (!replyContentToSend) {
           blockedReason = 'No reply content available';
-          const existingTrace = await db.getAIDecisionTrace(traceId, authoritativeTenantId);
-          const failureCategoryToUse = existingTrace?.failure_category || 'NO_FALLBACK_AVAILABLE';
-          await updateTraceSession(traceId, authoritativeTenantId, {
-            failure_category: failureCategoryToUse,
-            failure_reason: existingTrace?.failure_reason || blockedReason,
-            final_outcome: 'NO_REPLY_NO_FALLBACK',
-            total_latency_ms: Date.now() - eventStartTime,
-          });
         }
 
         const autoSendEligible = !conv.human_takeover && Boolean(replyContentToSend);
@@ -700,11 +719,6 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          await updateTraceSession(traceId, authoritativeTenantId, {
-            processing_stage: 'META_SEND_STARTED',
-            meta_send_attempted: true,
-          });
-
           // Attempt outgoing message through Instagram Graph API with decrypted token
           const sendResult = await connector.sendDirectMessage({
             recipientId: conv.external_id,
@@ -753,15 +767,17 @@ export async function POST(req: NextRequest) {
               details: { conversation_id: conv.id, type: replySourceType },
             });
 
+            // Checkpoint 3: Delivery Finalization (Reply Sent Successfully)
             await updateTraceSession(traceId, authoritativeTenantId, {
               processing_stage: 'OUTGOING_MESSAGE_PERSISTED',
               outgoing_message_id: botMsg?.id || null,
               external_outgoing_message_id: sendResult.messageId || null,
+              meta_send_attempted: true,
               meta_send_success: true,
               meta_http_status: sendResult.httpStatus || 200,
               final_outcome: 'REPLY_SENT',
               total_latency_ms: Date.now() - eventStartTime,
-            });
+            }, { trustedReferences: true });
           } else {
             // Outbound send failed: record audit log
             await db.addAuditLog({
@@ -775,8 +791,10 @@ export async function POST(req: NextRequest) {
             const isMeta5xx = Boolean(sendResult.httpStatus && sendResult.httpStatus >= 500);
             const failureCategory = isMeta429 ? 'META_RATE_LIMIT' : (isMeta5xx ? 'META_SERVER_ERROR' : 'META_SEND_FAILURE');
 
+            // Checkpoint 3: Delivery Finalization (Meta Send Failed)
             await updateTraceSession(traceId, authoritativeTenantId, {
               processing_stage: 'META_SEND_FAILED',
+              meta_send_attempted: true,
               meta_send_success: false,
               meta_http_status: sendResult.httpStatus || 500,
               meta_error_code: sendResult.errorCode || null,
@@ -834,32 +852,11 @@ export async function POST(req: NextRequest) {
         let replySourceType: 'deepseek_ai' | 'fixed_comment_reply' | 'none' = 'none';
         let classification: any = 'neutral';
 
-        await updateTraceSession(traceId, authoritativeTenantId, {
-          processing_stage: 'AI_ELIGIBILITY_CHECKED',
-        });
-
         if (isAiEnabledForComments) {
           try {
             const aiContext = await buildTenantAIContext({
               tenantId: authoritativeTenantId,
               customerMessage: event.content,
-            });
-
-            await updateTraceSession(traceId, authoritativeTenantId, {
-              processing_stage: 'AI_CONTEXT_BUILT',
-              retrieval_summary: {
-                matched_topics: aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched || [],
-                menu_items_matched_count: aiContext.retrievedData?.relevantMenuItems?.length || 0,
-                faqs_matched_count: aiContext.retrievedData?.matchedFaqs?.length || 0,
-              },
-              retrieval_result_count: (aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched?.length || 0) +
-                (aiContext.retrievedData?.relevantMenuItems?.length || 0) +
-                (aiContext.retrievedData?.matchedFaqs?.length || 0),
-            });
-
-            await updateTraceSession(traceId, authoritativeTenantId, {
-              processing_stage: 'AI_GENERATION_STARTED',
-              generation_attempted: true,
             });
 
             const deepSeekRes = await generateDeepSeekReply(aiContext.messages, {
@@ -871,8 +868,18 @@ export async function POST(req: NextRequest) {
               classification = 'question';
               replySourceType = 'deepseek_ai';
 
+              // Checkpoint 2: Processing Checkpoint (Comment AI Succeeded)
               await updateTraceSession(traceId, authoritativeTenantId, {
                 processing_stage: 'AI_GENERATION_COMPLETED',
+                retrieval_summary: {
+                  matched_topics: aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched || [],
+                  menu_items_matched_count: aiContext.retrievedData?.relevantMenuItems?.length || 0,
+                  faqs_matched_count: aiContext.retrievedData?.matchedFaqs?.length || 0,
+                },
+                retrieval_result_count: (aiContext.retrievedData?.retrievalMetadata?.kbTopicsMatched?.length || 0) +
+                  (aiContext.retrievedData?.relevantMenuItems?.length || 0) +
+                  (aiContext.retrievedData?.matchedFaqs?.length || 0),
+                generation_attempted: true,
                 generation_success: true,
                 generation_latency_ms: deepSeekRes.latencyMs || null,
                 ai_model: deepSeekRes.model || 'deepseek-v4-flash',
@@ -887,14 +894,6 @@ export async function POST(req: NextRequest) {
               const isRateLimit = deepSeekRes.httpStatus === 429;
               const failureCategory = isTimeout ? 'AI_PROVIDER_TIMEOUT' : (isRateLimit ? 'AI_PROVIDER_RATE_LIMIT' : 'AI_PROVIDER_ERROR');
 
-              await updateTraceSession(traceId, authoritativeTenantId, {
-                processing_stage: 'AI_GENERATION_COMPLETED',
-                generation_success: false,
-                generation_latency_ms: deepSeekRes.latencyMs || null,
-                failure_category: failureCategory,
-                failure_reason: deepSeekRes.error || 'DeepSeek generation failed',
-              });
-
               await db.addAuditLog({
                 tenant_id: authoritativeTenantId,
                 event_type: 'AI_AUTO_REPLY_FALLBACK',
@@ -906,23 +905,34 @@ export async function POST(req: NextRequest) {
                 replyContent = fixedCommentReply;
                 replySourceType = 'fixed_comment_reply';
 
+                // Checkpoint 2: Processing Checkpoint (Comment Fallback Selected)
                 await updateTraceSession(traceId, authoritativeTenantId, {
                   processing_stage: 'FALLBACK_SELECTED',
+                  generation_attempted: true,
+                  generation_success: false,
+                  generation_latency_ms: deepSeekRes.latencyMs || null,
+                  failure_category: failureCategory,
+                  failure_reason: deepSeekRes.error || 'DeepSeek generation failed',
                   fallback_used: true,
                   fallback_type: 'fixed_comment_reply',
                   fallback_reason: deepSeekRes.error || 'DeepSeek generation failed',
+                });
+              } else {
+                await updateTraceSession(traceId, authoritativeTenantId, {
+                  processing_stage: 'AI_GENERATION_COMPLETED',
+                  generation_attempted: true,
+                  generation_success: false,
+                  generation_latency_ms: deepSeekRes.latencyMs || null,
+                  failure_category: failureCategory,
+                  failure_reason: deepSeekRes.error || 'DeepSeek generation failed',
+                  fallback_used: false,
+                  final_outcome: 'NO_REPLY_NO_FALLBACK',
+                  total_latency_ms: Date.now() - eventStartTime,
                 });
               }
             }
           } catch (err: any) {
             console.warn('[COMMENT_AI_EXCEPTION]', err);
-
-            await updateTraceSession(traceId, authoritativeTenantId, {
-              processing_stage: 'PROCESSING_FAILED',
-              generation_success: false,
-              failure_category: 'AI_CONTEXT_FAILURE',
-              failure_reason: err?.message || 'AI Context exception',
-            });
 
             await db.addAuditLog({
               tenant_id: authoritativeTenantId,
@@ -937,9 +947,24 @@ export async function POST(req: NextRequest) {
 
               await updateTraceSession(traceId, authoritativeTenantId, {
                 processing_stage: 'FALLBACK_SELECTED',
+                generation_attempted: true,
+                generation_success: false,
+                failure_category: 'AI_CONTEXT_FAILURE',
+                failure_reason: err?.message || 'AI Context exception',
                 fallback_used: true,
                 fallback_type: 'fixed_comment_reply',
                 fallback_reason: err?.message || 'AI Context exception',
+              });
+            } else {
+              await updateTraceSession(traceId, authoritativeTenantId, {
+                processing_stage: 'PROCESSING_FAILED',
+                generation_attempted: true,
+                generation_success: false,
+                failure_category: 'AI_CONTEXT_FAILURE',
+                failure_reason: err?.message || 'AI Context exception',
+                fallback_used: false,
+                final_outcome: 'NO_REPLY_NO_FALLBACK',
+                total_latency_ms: Date.now() - eventStartTime,
               });
             }
           }
@@ -957,11 +982,6 @@ export async function POST(req: NextRequest) {
 
         let sendResult: any = null;
         if (decryptedToken && replyContent) {
-          await updateTraceSession(traceId, authoritativeTenantId, {
-            processing_stage: 'META_SEND_STARTED',
-            meta_send_attempted: true,
-          });
-
           sendResult = await connector.sendCommentReply({
             commentId: event.externalId,
             content: replyContent,
@@ -970,8 +990,10 @@ export async function POST(req: NextRequest) {
 
           if (sendResult.success) {
             isAutoReplied = true;
+            // Checkpoint 3: Delivery Finalization (Comment Reply Sent)
             await updateTraceSession(traceId, authoritativeTenantId, {
               processing_stage: 'META_SEND_SUCCEEDED',
+              meta_send_attempted: true,
               meta_send_success: true,
               meta_http_status: sendResult.httpStatus || 200,
               final_outcome: 'REPLY_SENT',
@@ -982,8 +1004,10 @@ export async function POST(req: NextRequest) {
             const isMeta5xx = Boolean(sendResult.httpStatus && sendResult.httpStatus >= 500);
             const failureCategory = isMeta429 ? 'META_RATE_LIMIT' : (isMeta5xx ? 'META_SERVER_ERROR' : 'META_SEND_FAILURE');
 
+            // Checkpoint 3: Delivery Finalization (Comment Send Failed)
             await updateTraceSession(traceId, authoritativeTenantId, {
               processing_stage: 'META_SEND_FAILED',
+              meta_send_attempted: true,
               meta_send_success: false,
               meta_http_status: sendResult.httpStatus || 500,
               meta_error_code: sendResult.errorCode || null,

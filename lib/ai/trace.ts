@@ -33,9 +33,11 @@ export function sanitizeTraceError(rawError: string | null | undefined): string 
  */
 export async function validateTenantConversation(
   conversationId: string | null | undefined,
-  tenantId: string
+  tenantId: string,
+  trusted: boolean = false
 ): Promise<string | null> {
   if (!conversationId || !tenantId) return null;
+  if (trusted) return conversationId;
   try {
     const exists = await db.verifyConversationExists(conversationId, tenantId);
     return exists ? conversationId : null;
@@ -50,9 +52,11 @@ export async function validateTenantConversation(
  */
 export async function validateTenantMessage(
   messageId: string | null | undefined,
-  tenantId: string
+  tenantId: string,
+  trusted: boolean = false
 ): Promise<string | null> {
   if (!messageId || !tenantId) return null;
+  if (trusted) return messageId;
   try {
     const exists = await db.verifyMessageExists(messageId, tenantId);
     return exists ? messageId : null;
@@ -72,6 +76,7 @@ export interface CreateTraceParams {
   incomingMessageId?: string | null;
   processingStage?: TraceStage;
   finalOutcome?: TraceFinalOutcome | null;
+  trustedReferences?: boolean;
 }
 
 /**
@@ -81,10 +86,11 @@ export interface CreateTraceParams {
 export async function createTraceSession(params: CreateTraceParams): Promise<AIDecisionTrace> {
   const traceId = params.traceId || crypto.randomUUID();
   const now = new Date().toISOString();
+  const trusted = Boolean(params.trustedReferences);
 
   // Validate internal foreign references against target tenant
-  const safeConversationId = await validateTenantConversation(params.conversationId, params.tenantId);
-  const safeIncomingMessageId = await validateTenantMessage(params.incomingMessageId, params.tenantId);
+  const safeConversationId = await validateTenantConversation(params.conversationId, params.tenantId, trusted);
+  const safeIncomingMessageId = await validateTenantMessage(params.incomingMessageId, params.tenantId, trusted);
 
   const initialTrace: Partial<AIDecisionTrace> = {
     id: crypto.randomUUID(),
@@ -145,8 +151,13 @@ export async function createTraceSession(params: CreateTraceParams): Promise<AID
     updated_at: now,
   };
 
-  const created = await db.createAIDecisionTrace(initialTrace);
-  return created || (initialTrace as AIDecisionTrace);
+  try {
+    const created = await db.createAIDecisionTrace(initialTrace);
+    return created || (initialTrace as AIDecisionTrace);
+  } catch (err: any) {
+    console.warn('[TRACE_CREATE_SESSION_WARN]', err?.message || err);
+    return initialTrace as AIDecisionTrace;
+  }
 }
 
 /**
@@ -156,31 +167,38 @@ export async function createTraceSession(params: CreateTraceParams): Promise<AID
 export async function updateTraceSession(
   traceId: string,
   tenantId: string,
-  updates: Partial<AIDecisionTrace>
+  updates: Partial<AIDecisionTrace>,
+  options?: { trustedReferences?: boolean }
 ): Promise<AIDecisionTrace | null> {
   if (!traceId || !tenantId) return null;
 
-  const sanitizedUpdates = { ...updates };
+  try {
+    const sanitizedUpdates = { ...updates };
+    const trusted = Boolean(options?.trustedReferences);
 
-  if (sanitizedUpdates.failure_reason) {
-    sanitizedUpdates.failure_reason = sanitizeTraceError(sanitizedUpdates.failure_reason);
-  }
-  if (sanitizedUpdates.fallback_reason) {
-    sanitizedUpdates.fallback_reason = sanitizeTraceError(sanitizedUpdates.fallback_reason);
-  }
+    if (sanitizedUpdates.failure_reason) {
+      sanitizedUpdates.failure_reason = sanitizeTraceError(sanitizedUpdates.failure_reason);
+    }
+    if (sanitizedUpdates.fallback_reason) {
+      sanitizedUpdates.fallback_reason = sanitizeTraceError(sanitizedUpdates.fallback_reason);
+    }
 
-  // Validate internal foreign references if provided in updates
-  if (sanitizedUpdates.conversation_id !== undefined) {
-    sanitizedUpdates.conversation_id = await validateTenantConversation(sanitizedUpdates.conversation_id, tenantId);
-  }
-  if (sanitizedUpdates.incoming_message_id !== undefined) {
-    sanitizedUpdates.incoming_message_id = await validateTenantMessage(sanitizedUpdates.incoming_message_id, tenantId);
-  }
-  if (sanitizedUpdates.outgoing_message_id !== undefined) {
-    sanitizedUpdates.outgoing_message_id = await validateTenantMessage(sanitizedUpdates.outgoing_message_id, tenantId);
-  }
+    // Validate internal foreign references if provided in updates
+    if (sanitizedUpdates.conversation_id !== undefined) {
+      sanitizedUpdates.conversation_id = await validateTenantConversation(sanitizedUpdates.conversation_id, tenantId, trusted);
+    }
+    if (sanitizedUpdates.incoming_message_id !== undefined) {
+      sanitizedUpdates.incoming_message_id = await validateTenantMessage(sanitizedUpdates.incoming_message_id, tenantId, trusted);
+    }
+    if (sanitizedUpdates.outgoing_message_id !== undefined) {
+      sanitizedUpdates.outgoing_message_id = await validateTenantMessage(sanitizedUpdates.outgoing_message_id, tenantId, trusted);
+    }
 
-  return db.updateAIDecisionTrace(traceId, sanitizedUpdates, tenantId);
+    return await db.updateAIDecisionTrace(traceId, sanitizedUpdates, tenantId);
+  } catch (err: any) {
+    console.warn('[TRACE_UPDATE_SESSION_WARN]', err?.message || err);
+    return null;
+  }
 }
 
 /**

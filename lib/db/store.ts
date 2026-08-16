@@ -1230,24 +1230,50 @@ export const db = {
       updated_at: trace.updated_at || now,
     };
 
-    try {
-      const { data, error } = await backend
-        .from('ai_decision_traces')
-        .insert(payload)
-        .select()
-        .single();
+    const fallbackTrace = payload as AIDecisionTrace;
+    const TRACE_TIMEOUT_MS = 1500;
 
-      if (!error && data) {
-        const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
-        memList.unshift(data);
-        aiDecisionTracesMemoryStore.set(targetTenantId, memList);
-        return data;
-      }
+    let dbResult: AIDecisionTrace | null = null;
+    let timer: NodeJS.Timeout | null = null;
+
+    try {
+      const dbPromise = (async () => {
+        const { data, error } = await backend
+          .from('ai_decision_traces')
+          .insert(payload)
+          .select()
+          .single();
+
+        if (!error && data) {
+          const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
+          memList.unshift(data);
+          aiDecisionTracesMemoryStore.set(targetTenantId, memList);
+          return data;
+        }
+        return null;
+      })();
+
+      // Prevent unhandled rejection if timeout fires first
+      dbPromise.catch((err: any) => {
+        console.warn('[TRACE_INSERT_WARN]', err?.message || err);
+      });
+
+      const timeoutPromise = new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          console.warn(`[TRACE_TIMEOUT_WARN] Trace create operation timed out after ${TRACE_TIMEOUT_MS}ms`);
+          resolve(null);
+        }, TRACE_TIMEOUT_MS);
+      });
+
+      dbResult = await Promise.race([dbPromise, timeoutPromise]);
     } catch (err: any) {
       console.warn('[TRACE_INSERT_WARN]', err.message);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
 
-    const fallbackTrace = payload as AIDecisionTrace;
+    if (dbResult) return dbResult;
+
     const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
     memList.unshift(fallbackTrace);
     aiDecisionTracesMemoryStore.set(targetTenantId, memList);
@@ -1263,25 +1289,50 @@ export const db = {
       updated_at: now,
     };
 
-    try {
-      const { data, error } = await backend
-        .from('ai_decision_traces')
-        .update(updatePayload)
-        .eq('trace_id', traceId)
-        .eq('tenant_id', targetTenantId)
-        .select()
-        .maybeSingle();
+    const TRACE_TIMEOUT_MS = 1500;
+    let dbResult: AIDecisionTrace | null = null;
+    let timer: NodeJS.Timeout | null = null;
 
-      if (!error && data) {
-        const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
-        const idx = memList.findIndex(t => t.trace_id === traceId);
-        if (idx >= 0) memList[idx] = data; else memList.unshift(data);
-        aiDecisionTracesMemoryStore.set(targetTenantId, memList);
-        return data;
-      }
+    try {
+      const dbPromise = (async () => {
+        const { data, error } = await backend
+          .from('ai_decision_traces')
+          .update(updatePayload)
+          .eq('trace_id', traceId)
+          .eq('tenant_id', targetTenantId)
+          .select()
+          .maybeSingle();
+
+        if (!error && data) {
+          const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
+          const idx = memList.findIndex(t => t.trace_id === traceId);
+          if (idx >= 0) memList[idx] = data; else memList.unshift(data);
+          aiDecisionTracesMemoryStore.set(targetTenantId, memList);
+          return data;
+        }
+        return null;
+      })();
+
+      // Prevent unhandled rejection if timeout fires first
+      dbPromise.catch((err: any) => {
+        console.warn('[TRACE_UPDATE_WARN]', err?.message || err);
+      });
+
+      const timeoutPromise = new Promise<null>((resolve) => {
+        timer = setTimeout(() => {
+          console.warn(`[TRACE_TIMEOUT_WARN] Trace update operation timed out after ${TRACE_TIMEOUT_MS}ms`);
+          resolve(null);
+        }, TRACE_TIMEOUT_MS);
+      });
+
+      dbResult = await Promise.race([dbPromise, timeoutPromise]);
     } catch (err: any) {
       console.warn('[TRACE_UPDATE_WARN]', err.message);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
+
+    if (dbResult) return dbResult;
 
     const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
     const existing = memList.find(t => t.trace_id === traceId);
