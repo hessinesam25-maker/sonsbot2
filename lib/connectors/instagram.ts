@@ -2,6 +2,8 @@ import { PlatformConnector, WebhookEventPayload, SendMessageOptions, SendComment
 import { verifyMetaSignature } from '../security/signatures';
 import crypto from 'crypto';
 
+export type WebhookParseDiagnostic = (reasonCode: string) => void;
+
 function generateStableIdempotencyKey(
   prefix: 'ig_msg' | 'ig_cmt',
   senderId: string,
@@ -28,14 +30,16 @@ export class InstagramConnector implements PlatformConnector {
     return verifyMetaSignature(rawBody, signatureHeader, this.appSecret);
   }
 
-  parseWebhookPayload(body: any): WebhookEventPayload[] {
+  parseWebhookPayload(body: any, onIgnored?: WebhookParseDiagnostic): WebhookEventPayload[] {
     const events: WebhookEventPayload[] = [];
     if (!body || body.object !== 'instagram') {
+      onIgnored?.('UNSUPPORTED_OBJECT');
       return events;
     }
 
     const entries = body.entry || [];
     for (const entry of entries) {
+      const entryEventStart = events.length;
       const entryAccountId = entry.id ? String(entry.id) : undefined;
 
       // 1. Direct Messages via entry.messaging
@@ -61,6 +65,8 @@ export class InstagramConnector implements PlatformConnector {
               timestamp: new Date(timestampMs).toISOString(),
               rawPayload: msg,
             });
+          } else {
+            onIgnored?.('NON_TEXT_MESSAGE');
           }
         }
       }
@@ -68,7 +74,10 @@ export class InstagramConnector implements PlatformConnector {
       // 2. Changes array (comments or messages field changes)
       if (entry.changes && Array.isArray(entry.changes)) {
         for (const change of entry.changes) {
-          if (!change) continue;
+          if (!change) {
+            onIgnored?.('UNSUPPORTED_EVENT');
+            continue;
+          }
 
           // A. Comments
           if (change.field === 'comments' && change.value) {
@@ -90,13 +99,19 @@ export class InstagramConnector implements PlatformConnector {
               timestamp: new Date(val.created_time ? val.created_time * 1000 : Date.now()).toISOString(),
               rawPayload: val,
             });
+          } else if (change.field === 'comments') {
+            onIgnored?.('UNSUPPORTED_EVENT');
           }
 
           // B. Messages field in changes
-          if ((change.field === 'messages' || change.field === 'messaging') && change.value) {
+          else if ((change.field === 'messages' || change.field === 'messaging') && change.value) {
             const items = Array.isArray(change.value) ? change.value : [change.value];
+            if (items.length === 0) onIgnored?.('UNSUPPORTED_EVENT');
             for (const item of items) {
-              if (!item) continue;
+              if (!item) {
+                onIgnored?.('UNSUPPORTED_EVENT');
+                continue;
+              }
               const msgData = item.message || item;
               if (msgData && msgData.text) {
                 const recipientId = item.recipient?.id ? String(item.recipient.id) : entryAccountId;
@@ -118,10 +133,22 @@ export class InstagramConnector implements PlatformConnector {
                   timestamp: new Date(timestampMs).toISOString(),
                   rawPayload: item,
                 });
+              } else {
+                onIgnored?.('NON_TEXT_MESSAGE');
               }
             }
+          } else if (change.field === 'messages' || change.field === 'messaging') {
+            onIgnored?.('UNSUPPORTED_EVENT');
+          } else {
+            onIgnored?.('UNSUPPORTED_EVENT');
           }
         }
+      }
+
+      if (events.length === entryEventStart &&
+        ((!Array.isArray(entry.messaging) || entry.messaging.length === 0) &&
+          (!Array.isArray(entry.changes) || entry.changes.length === 0))) {
+        onIgnored?.('UNSUPPORTED_EVENT');
       }
     }
 
@@ -170,7 +197,12 @@ export class InstagramConnector implements PlatformConnector {
 
     try {
       if (!options.accessToken || options.accessToken.includes('mock')) {
-        console.log(`[InstagramConnector] Mock DM sent to ${options.recipientId}: ${options.content}`);
+        console.info('[IG-WEBHOOK]', JSON.stringify({
+          event: 'IG_WEBHOOK_MOCK_SEND',
+          platform: 'instagram',
+          channel: 'dm',
+          recipient_id_hash: crypto.createHash('sha256').update(options.recipientId).digest('hex').slice(0, 8),
+        }));
         return {
           success: true,
           messageId: `mock_ig_msg_${Date.now()}`,
@@ -232,7 +264,12 @@ export class InstagramConnector implements PlatformConnector {
 
     try {
       if (!options.accessToken || options.accessToken.includes('mock')) {
-        console.log(`[InstagramConnector] Mock Comment reply to ${options.commentId}: ${options.content}`);
+        console.info('[IG-WEBHOOK]', JSON.stringify({
+          event: 'IG_WEBHOOK_MOCK_SEND',
+          platform: 'instagram',
+          channel: 'comment',
+          comment_id_hash: crypto.createHash('sha256').update(options.commentId).digest('hex').slice(0, 8),
+        }));
         return { success: true, replyId: `mock_ig_rpl_${Date.now()}`, httpStatus: 200 };
       }
 

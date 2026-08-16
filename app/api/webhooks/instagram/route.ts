@@ -18,6 +18,14 @@ function getSha256First8(val: string | null | undefined): string | null {
   return crypto.createHash('sha256').update(val).digest('hex').slice(0, 8);
 }
 
+function logInstagramIngress(event: string, details: Record<string, unknown> = {}) {
+  console.info('[IG-WEBHOOK]', JSON.stringify({
+    event,
+    platform: 'instagram',
+    ...details,
+  }));
+}
+
 /**
  * GET Handler for Instagram Webhook verification challenge
  */
@@ -105,6 +113,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    logInstagramIngress('IG_WEBHOOK_POST_RECEIVED', { method: 'POST' });
     const arrayBuffer = await req.arrayBuffer();
     const rawBodyBuffer = Buffer.from(arrayBuffer);
     const rawBodyText = rawBodyBuffer.toString('utf8');
@@ -112,26 +121,64 @@ export async function POST(req: NextRequest) {
 
     // 1. Validate HMAC signature in production or whenever INSTAGRAM_APP_SECRET is set
     const appSecret = process.env.INSTAGRAM_APP_SECRET;
+    logInstagramIngress('IG_WEBHOOK_SIGNATURE_CHECK_STARTED', {
+      signature_required: Boolean(appSecret || process.env.NODE_ENV === 'production'),
+      signature_present: Boolean(signature),
+    });
     if (appSecret || process.env.NODE_ENV === 'production') {
       const textIsValid = connector.verifySignature(rawBodyText, signature);
       if (!textIsValid) {
+        logInstagramIngress('IG_WEBHOOK_SIGNATURE_REJECTED', {
+          reason_code: 'SIGNATURE_INVALID',
+          signature_present: Boolean(signature),
+        });
         await db.addAuditLog({
           event_type: 'WEBHOOK_INVALID_SIGNATURE',
           actor_type: 'webhook',
-          details: { platform: 'instagram', signatureHeader: signature },
+          details: { platform: 'instagram', signature_present: Boolean(signature) },
         });
         return NextResponse.json({ error: 'Invalid HMAC signature' }, { status: 401 });
       }
     }
 
     let payload: any;
+    let jsonParseFailed = false;
     try {
       payload = JSON.parse(rawBodyText);
     } catch {
-      // payload parsed empty or invalid
+      jsonParseFailed = true;
+      logInstagramIngress('IG_WEBHOOK_EVENT_IGNORED', { reason_code: 'JSON_PARSE_FAILED' });
     }
 
-    const events = connector.parseWebhookPayload(payload);
+    if (!jsonParseFailed) {
+      logInstagramIngress('IG_WEBHOOK_BODY_PARSED', {
+        object_type: payload?.object || 'unknown',
+        entry_count: Array.isArray(payload?.entry) ? payload.entry.length : 0,
+      });
+    }
+
+    let events;
+    let parserReportedIgnoredEvent = false;
+    try {
+      events = connector.parseWebhookPayload(
+        payload,
+        jsonParseFailed ? undefined : (reasonCode) => {
+          parserReportedIgnoredEvent = true;
+          logInstagramIngress('IG_WEBHOOK_EVENT_IGNORED', { reason_code: reasonCode });
+        },
+      );
+    } catch (error) {
+      logInstagramIngress('IG_WEBHOOK_EVENT_IGNORED', { reason_code: 'PAYLOAD_SHAPE_PARSE_FAILED' });
+      throw error;
+    }
+
+    if (!jsonParseFailed && events.length === 0 && !parserReportedIgnoredEvent) {
+      logInstagramIngress('IG_WEBHOOK_EVENT_IGNORED', { reason_code: 'UNSUPPORTED_EVENT' });
+    }
+
+    logInstagramIngress('IG_WEBHOOK_TENANT_LOOKUP_STARTED', {
+      events_count: events.length,
+    });
     const allConnections = await db.getConnections();
     const igConnections = allConnections.filter(c => c.platform === 'instagram' && c.is_active);
 
@@ -144,8 +191,15 @@ export async function POST(req: NextRequest) {
       active_connections_count: igConnections.length,
     }));
 
+    logInstagramIngress('IG_WEBHOOK_TENANT_LOOKUP_COMPLETED', {
+      active_connections_count: igConnections.length,
+    });
+
     if (igConnections.length === 0) {
-      console.warn('Rejected webhook: No active Instagram platform connection found.');
+      logInstagramIngress('IG_WEBHOOK_TENANT_NOT_FOUND', {
+        reason_code: 'TENANT_NOT_FOUND',
+        active_connections_count: 0,
+      });
       return NextResponse.json({ error: 'Disconnected or unknown platform account' }, { status: 403 });
     }
 
@@ -160,7 +214,18 @@ export async function POST(req: NextRequest) {
 
       const resolvedTenantId = targetConn?.tenant_id || DEFAULT_TENANT_ID;
 
+      logInstagramIngress('IG_WEBHOOK_EVENT_ACCEPTED', {
+        event_type: event.eventType,
+        sender_id_hash: getSha256First8(event.senderId),
+        recipient_id_hash: getSha256First8(recipientAccountId),
+        external_event_id_hash: getSha256First8(event.externalId),
+      });
+
       // Initialize End-to-End Observability Trace Session
+      logInstagramIngress('IG_WEBHOOK_TRACE_CREATION_STARTED', {
+        event_type: event.eventType,
+        external_event_id_hash: getSha256First8(event.externalId),
+      });
       await createTraceSession({
         traceId,
         tenantId: resolvedTenantId,
@@ -177,7 +242,7 @@ export async function POST(req: NextRequest) {
           trace_id: traceId,
           webhook_object_type: payload?.object || 'unknown',
           event_field_type: event.eventType,
-          entry_account_id: recipientAccountId || 'unknown',
+          entry_account_id_hash: getSha256First8(recipientAccountId),
           sender_id_present: Boolean(event.senderId),
           recipient_id_present: Boolean(event.recipientId),
           connection_found: false,
@@ -203,7 +268,7 @@ export async function POST(req: NextRequest) {
           trace_id: traceId,
           webhook_object_type: payload?.object || 'unknown',
           event_field_type: event.eventType,
-          entry_account_id: recipientAccountId || targetConn.account_id,
+          entry_account_id_hash: getSha256First8(recipientAccountId || targetConn.account_id),
           sender_id_present: Boolean(event.senderId),
           recipient_id_present: Boolean(event.recipientId),
           connection_found: true,
@@ -255,7 +320,7 @@ export async function POST(req: NextRequest) {
         sender_id_present: Boolean(event.senderId),
         message_mid_present: keySource === 'meta_mid',
         generated_idempotency_key_source: keySource,
-        event_id: event.externalId,
+        event_id_hash: getSha256First8(event.externalId),
         duplicate_detected: isDuplicateByEvent,
         duplicate_reason: isDuplicateByEvent ? 'Duplicate event_id skipped by processed_webhook_events table' : null,
       }));
@@ -265,7 +330,7 @@ export async function POST(req: NextRequest) {
           trace_id: traceId,
           webhook_object_type: payload?.object || 'unknown',
           event_field_type: event.eventType,
-          entry_account_id: recipientAccountId || targetConn.account_id,
+          entry_account_id_hash: getSha256First8(recipientAccountId || targetConn.account_id),
           sender_id_present: Boolean(event.senderId),
           recipient_id_present: Boolean(event.recipientId),
           connection_found: true,
@@ -309,7 +374,7 @@ export async function POST(req: NextRequest) {
               sender_id_present: Boolean(event.senderId),
               message_mid_present: keySource === 'meta_mid',
               generated_idempotency_key_source: keySource,
-              event_id: event.externalId,
+              event_id_hash: getSha256First8(event.externalId),
               duplicate_detected: true,
               duplicate_reason: 'Duplicate DM message ID already processed in messages table',
             }));
@@ -318,7 +383,7 @@ export async function POST(req: NextRequest) {
               trace_id: traceId,
               webhook_object_type: payload?.object || 'unknown',
               event_field_type: event.eventType,
-              entry_account_id: recipientAccountId || targetConn.account_id,
+              entry_account_id_hash: getSha256First8(recipientAccountId || targetConn.account_id),
               sender_id_present: Boolean(event.senderId),
               recipient_id_present: Boolean(event.recipientId),
               connection_found: true,
@@ -431,7 +496,7 @@ export async function POST(req: NextRequest) {
           trace_id: traceId,
           webhook_object_type: payload?.object || 'unknown',
           event_field_type: event.eventType,
-          entry_account_id: recipientAccountId || targetConn.account_id,
+          entry_account_id_hash: getSha256First8(recipientAccountId || targetConn.account_id),
           sender_id_present: Boolean(event.senderId),
           recipient_id_present: Boolean(event.recipientId),
           connection_found: true,
@@ -815,7 +880,7 @@ export async function POST(req: NextRequest) {
             trace_id: traceId,
             webhook_object_type: payload?.object || 'unknown',
             event_field_type: event.eventType,
-            entry_account_id: recipientAccountId || targetConn.account_id,
+            entry_account_id_hash: getSha256First8(recipientAccountId || targetConn.account_id),
             sender_id_present: Boolean(event.senderId),
             recipient_id_present: Boolean(event.recipientId),
             connection_found: true,
@@ -1057,7 +1122,7 @@ export async function POST(req: NextRequest) {
           trace_id: traceId,
           webhook_object_type: payload?.object || 'unknown',
           event_field_type: event.eventType,
-          entry_account_id: recipientAccountId || targetConn.account_id,
+          entry_account_id_hash: getSha256First8(recipientAccountId || targetConn.account_id),
           sender_id_present: Boolean(event.senderId),
           recipient_id_present: Boolean(event.recipientId),
           connection_found: true,
@@ -1078,7 +1143,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, processedEvents: events.length }, { status: 200 });
   } catch (error: any) {
-    console.error('Webhook processing error:', error);
+    logInstagramIngress('IG_WEBHOOK_POST_FAILED', {
+      reason_code: 'WEBHOOK_PROCESSING_FAILED',
+      error_type: error?.constructor?.name || 'UnknownError',
+    });
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }
 }
