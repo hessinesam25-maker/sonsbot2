@@ -330,4 +330,138 @@ export interface InstagramConnectionState {
   hasPlaceholderUsername: boolean;
 }
 
+export type TraceStage =
+  | 'WEBHOOK_RECEIVED'
+  | 'EVENT_PARSED'
+  | 'TENANT_RESOLVED'
+  | 'DUPLICATE_CHECKED'
+  | 'CONVERSATION_RESOLVED'
+  | 'MESSAGE_PERSISTED'
+  | 'AI_ELIGIBILITY_CHECKED'
+  | 'AI_CONTEXT_BUILT'
+  | 'KNOWLEDGE_RETRIEVED'
+  | 'AI_GENERATION_STARTED'
+  | 'AI_GENERATION_COMPLETED'
+  | 'FALLBACK_SELECTED'
+  | 'META_SEND_STARTED'
+  | 'META_SEND_SUCCEEDED'
+  | 'META_SEND_FAILED'
+  | 'OUTGOING_MESSAGE_PERSISTED'
+  | 'PROCESSING_COMPLETED'
+  | 'PROCESSING_FAILED';
+
+export type TraceFailureCategory =
+  | 'WEBHOOK_PARSE_FAILURE'
+  | 'INVALID_SIGNATURE'
+  | 'TENANT_RESOLUTION_FAILURE'
+  | 'DUPLICATE_EVENT'
+  | 'CONVERSATION_FAILURE'
+  | 'MESSAGE_PERSISTENCE_FAILURE'
+  | 'AI_DISABLED'
+  | 'HUMAN_TAKEOVER'
+  | 'AUTO_REPLY_DISABLED'
+  | 'SELF_MESSAGE'
+  | 'AI_CONTEXT_FAILURE'
+  | 'AI_PROVIDER_TIMEOUT'
+  | 'AI_PROVIDER_RATE_LIMIT'
+  | 'AI_PROVIDER_ERROR'
+  | 'AI_EMPTY_RESPONSE'
+  | 'NO_FALLBACK_AVAILABLE'
+  | 'TOKEN_DECRYPTION_FAILURE'
+  | 'META_RATE_LIMIT'
+  | 'META_SERVER_ERROR'
+  | 'META_CLIENT_ERROR'
+  | 'META_NETWORK_ERROR'
+  | 'META_SEND_FAILURE'
+  | 'UNSUPPORTED_MESSAGE_TYPE'
+  | 'UNKNOWN_FAILURE';
+
+export type TraceFinalOutcome =
+  | 'REPLY_SENT'
+  | 'NO_REPLY_AI_DISABLED'
+  | 'NO_REPLY_HUMAN_TAKEOVER'
+  | 'NO_REPLY_AUTO_REPLY_DISABLED'
+  | 'NO_REPLY_DUPLICATE'
+  | 'NO_REPLY_SELF_MESSAGE'
+  | 'NO_REPLY_AI_FAILURE'
+  | 'NO_REPLY_NO_FALLBACK'
+  | 'NO_REPLY_META_SEND_FAILED'
+  | 'NO_REPLY_TOKEN_FAILURE'
+  | 'NO_REPLY_UNSUPPORTED_EVENT'
+  | 'NO_REPLY_TENANT_NOT_FOUND'
+  | 'PROCESSING_COMPLETED'
+  | 'PROCESSING_FAILED';
+
+export interface AIDecisionTrace {
+  id: string;
+  trace_id: string;
+  tenant_id: string;
+  conversation_id?: string | null;
+  incoming_message_id?: string | null;
+  outgoing_message_id?: string | null;
+  external_outgoing_message_id?: string | null;
+
+  platform: string;
+  external_event_id?: string | null;
+  external_message_id?: string | null;
+  channel_type: ChannelType;
+
+  processing_stage: TraceStage;
+  final_outcome?: TraceFinalOutcome | null;
+
+  // Language & Intent (V2 Forward Compatibility; null in Phase 1A)
+  detected_language?: string | null;
+  language_confidence?: number | null;
+  intent?: string | null;
+  normalized_question?: string | null;
+  needs_business_data?: boolean | null;
+  needs_conversation_context?: boolean | null;
+  risk_level?: string | null;
+  search_query?: string | null;
+  verification_status?: string | null;
+
+  // Retrieval Metadata
+  retrieval_summary?: {
+    matched_topics?: string[];
+    menu_items_matched_count?: number;
+    faqs_matched_count?: number;
+  } | null;
+  retrieval_result_count?: number | null;
+
+  // AI Generation Metadata
+  ai_provider?: string | null;
+  ai_model?: string | null;
+  generation_attempted?: boolean | null;
+  generation_success?: boolean | null;
+  generation_latency_ms?: number | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  tokens_total?: number | null;
+
+  // Fallback Metadata
+  fallback_used?: boolean | null;
+  fallback_reason?: string | null;
+  fallback_type?: string | null;
+
+  // Meta Delivery Metadata
+  meta_send_attempted?: boolean | null;
+  meta_send_success?: boolean | null;
+  meta_http_status?: number | null;
+  meta_error_code?: number | null;
+  meta_error_type?: string | null;
+  meta_error_subcode?: number | null;
+
+  // Failure Metadata
+  failure_category?: TraceFailureCategory | null;
+  failure_reason?: string | null;
+
+  // Conversation & Latency Metadata
+  history_message_count?: number | null;
+  total_latency_ms?: number | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+
 

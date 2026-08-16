@@ -1,7 +1,7 @@
 import { 
   Tenant, User, PlatformConnection, KnowledgeBase, MenuItem, 
   Conversation, Message, Comment, AutomationRules, AuditLog, FAQ, PlatformAdmin, AISettings,
-  InstagramConnectionState, InstagramMedia
+  InstagramConnectionState, InstagramMedia, AIDecisionTrace
 } from './types';
 import { supabaseFrontend, getBackendSupabaseClient } from './client';
 
@@ -15,6 +15,7 @@ const tenantMemoryStore = new Map<string, Tenant>();
 const instagramMediaMemoryStore = new Map<string, InstagramMedia[]>();
 const commentMemoryStore = new Map<string, Comment[]>();
 const connectionMemoryStore = new Map<string, PlatformConnection[]>();
+const aiDecisionTracesMemoryStore = new Map<string, AIDecisionTrace[]>();
 
 function getDbClient() {
   return typeof window === 'undefined' ? getBackendSupabaseClient() : supabaseFrontend;
@@ -916,6 +917,17 @@ export const db = {
     return data;
   },
 
+  verifyMessageExists: async (id: string, tenantId: string): Promise<boolean> => {
+    const backend = getDbClient();
+    const { data } = await backend
+      .from('messages')
+      .select('id')
+      .eq('id', id)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    return Boolean(data && data.id);
+  },
+
   // Real Supabase Comments
   getComments: async (tenantId: string = DEFAULT_TENANT_ID): Promise<Comment[]> => {
     const client = getDbClient();
@@ -1161,5 +1173,172 @@ export const db = {
       console.error('Exception deleting tenant:', err);
       return { success: false, error: err.message || 'Failed to delete restaurant.' };
     }
+  },
+
+  // AI Decision Traces Operations
+  createAIDecisionTrace: async (trace: Partial<AIDecisionTrace>): Promise<AIDecisionTrace | null> => {
+    const backend = getDbClient();
+    const targetTenantId = trace.tenant_id || DEFAULT_TENANT_ID;
+    const now = new Date().toISOString();
+    const payload: Partial<AIDecisionTrace> = {
+      id: trace.id || crypto.randomUUID(),
+      trace_id: trace.trace_id || crypto.randomUUID(),
+      tenant_id: targetTenantId,
+      conversation_id: trace.conversation_id || null,
+      incoming_message_id: trace.incoming_message_id || null,
+      outgoing_message_id: trace.outgoing_message_id || null,
+      external_outgoing_message_id: trace.external_outgoing_message_id || null,
+      platform: trace.platform || 'instagram',
+      external_event_id: trace.external_event_id || null,
+      external_message_id: trace.external_message_id || null,
+      channel_type: trace.channel_type || 'dm',
+      processing_stage: trace.processing_stage || 'EVENT_PARSED',
+      final_outcome: trace.final_outcome || null,
+      detected_language: trace.detected_language || null,
+      language_confidence: trace.language_confidence || null,
+      intent: trace.intent || null,
+      normalized_question: trace.normalized_question || null,
+      needs_business_data: trace.needs_business_data ?? null,
+      needs_conversation_context: trace.needs_conversation_context ?? null,
+      risk_level: trace.risk_level || null,
+      search_query: trace.search_query || null,
+      verification_status: trace.verification_status || null,
+      retrieval_summary: trace.retrieval_summary || null,
+      retrieval_result_count: trace.retrieval_result_count || 0,
+      ai_provider: trace.ai_provider || 'deepseek',
+      ai_model: trace.ai_model || 'deepseek-v4-flash',
+      generation_attempted: trace.generation_attempted ?? false,
+      generation_success: trace.generation_success ?? null,
+      generation_latency_ms: trace.generation_latency_ms || null,
+      tokens_prompt: trace.tokens_prompt || null,
+      tokens_completion: trace.tokens_completion || null,
+      tokens_total: trace.tokens_total || null,
+      fallback_used: trace.fallback_used ?? false,
+      fallback_reason: trace.fallback_reason || null,
+      fallback_type: trace.fallback_type || null,
+      meta_send_attempted: trace.meta_send_attempted ?? false,
+      meta_send_success: trace.meta_send_success ?? null,
+      meta_http_status: trace.meta_http_status || null,
+      meta_error_code: trace.meta_error_code || null,
+      meta_error_type: trace.meta_error_type || null,
+      meta_error_subcode: trace.meta_error_subcode || null,
+      failure_category: trace.failure_category || null,
+      failure_reason: trace.failure_reason || null,
+      history_message_count: trace.history_message_count || 0,
+      total_latency_ms: trace.total_latency_ms || 0,
+      created_at: trace.created_at || now,
+      updated_at: trace.updated_at || now,
+    };
+
+    try {
+      const { data, error } = await backend
+        .from('ai_decision_traces')
+        .insert(payload)
+        .select()
+        .single();
+
+      if (!error && data) {
+        const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
+        memList.unshift(data);
+        aiDecisionTracesMemoryStore.set(targetTenantId, memList);
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[TRACE_INSERT_WARN]', err.message);
+    }
+
+    const fallbackTrace = payload as AIDecisionTrace;
+    const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
+    memList.unshift(fallbackTrace);
+    aiDecisionTracesMemoryStore.set(targetTenantId, memList);
+    return fallbackTrace;
+  },
+
+  updateAIDecisionTrace: async (traceId: string, updates: Partial<AIDecisionTrace>, tenantId: string = DEFAULT_TENANT_ID): Promise<AIDecisionTrace | null> => {
+    const backend = getDbClient();
+    const targetTenantId = updates.tenant_id || tenantId;
+    const now = new Date().toISOString();
+    const updatePayload = {
+      ...updates,
+      updated_at: now,
+    };
+
+    try {
+      const { data, error } = await backend
+        .from('ai_decision_traces')
+        .update(updatePayload)
+        .eq('trace_id', traceId)
+        .eq('tenant_id', targetTenantId)
+        .select()
+        .maybeSingle();
+
+      if (!error && data) {
+        const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
+        const idx = memList.findIndex(t => t.trace_id === traceId);
+        if (idx >= 0) memList[idx] = data; else memList.unshift(data);
+        aiDecisionTracesMemoryStore.set(targetTenantId, memList);
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[TRACE_UPDATE_WARN]', err.message);
+    }
+
+    const memList = aiDecisionTracesMemoryStore.get(targetTenantId) || [];
+    const existing = memList.find(t => t.trace_id === traceId);
+    if (existing) {
+      Object.assign(existing, updatePayload);
+      return existing;
+    }
+    return null;
+  },
+
+  getAIDecisionTrace: async (traceId: string, tenantId: string = DEFAULT_TENANT_ID): Promise<AIDecisionTrace | null> => {
+    const client = getDbClient();
+    try {
+      const { data, error } = await client
+        .from('ai_decision_traces')
+        .select('*')
+        .eq('trace_id', traceId)
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+
+      if (!error && data) {
+        return data;
+      }
+    } catch (err: any) {
+      console.warn('[TRACE_LOOKUP_WARN]', err.message);
+    }
+
+    const memList = aiDecisionTracesMemoryStore.get(tenantId) || [];
+    return memList.find(t => t.trace_id === traceId) || null;
+  },
+
+  getAIDecisionTraces: async (tenantId: string = DEFAULT_TENANT_ID, limit: number = 50): Promise<AIDecisionTrace[]> => {
+    const client = getDbClient();
+    try {
+      const { data, error } = await client
+        .from('ai_decision_traces')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (!error && data) {
+        const memList = aiDecisionTracesMemoryStore.get(tenantId) || [];
+        const combined = [...data];
+        for (const m of memList) {
+          if (!combined.some(d => d.trace_id === m.trace_id)) {
+            combined.push(m);
+          }
+        }
+        return combined.slice(0, limit);
+      }
+    } catch (err: any) {
+      console.warn('[TRACES_LIST_WARN]', err.message);
+    }
+
+    const memList = aiDecisionTracesMemoryStore.get(tenantId) || [];
+    return memList.slice(0, limit);
   }
 };
+
