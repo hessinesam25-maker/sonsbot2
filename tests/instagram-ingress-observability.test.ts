@@ -46,6 +46,56 @@ function validDm(text: string = 'HI') {
   });
 }
 
+function validChangesDm(text: string = 'HI') {
+  return JSON.stringify({
+    object: 'instagram',
+    entry: [{
+      id: accountId,
+      changes: [{
+        field: 'messages',
+        value: {
+          sender: { id: 'customer_changes_123' },
+          recipient: { id: accountId },
+          timestamp: String(Math.floor(Date.now() / 1000)),
+          message: { mid: 'mid_changes_observability_1', text },
+        },
+      }],
+    }],
+  });
+}
+
+function configureActiveTracePath() {
+  vi.spyOn(db, 'getConnections').mockResolvedValue([{
+    id: 'connection_test',
+    tenant_id: tenantId,
+    platform: 'instagram',
+    account_id: accountId,
+    account_name: 'test_account',
+    access_token_encrypted: 'mock_access_token',
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as any]);
+  vi.spyOn(db, 'getKnowledgeBase').mockResolvedValue({} as any);
+  vi.spyOn(db, 'getMenu').mockResolvedValue([]);
+  vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
+    default_dm_reply: null,
+    static_dm_enabled: false,
+  } as any);
+  vi.spyOn(db, 'getConversations').mockResolvedValue([]);
+  vi.spyOn(db, 'createConversation').mockResolvedValue({
+    id: '22222222-2222-2222-2222-222222222222',
+    tenant_id: tenantId,
+    external_id: 'customer_123',
+    customer_id: 'customer_123',
+    human_takeover: false,
+    auto_reply_enabled: true,
+  } as any);
+  vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
+  vi.spyOn(db, 'addMessage').mockResolvedValue({ id: 'message_test' } as any);
+  vi.spyOn(db, 'getAISettings').mockResolvedValue({ ai_enabled: false, reply_to_dms: false } as any);
+}
+
 describe('Instagram pre-trace ingress observability', () => {
   let logs: string[];
 
@@ -69,35 +119,7 @@ describe('Instagram pre-trace ingress observability', () => {
   });
 
   it('logs receipt and proves a valid text DM reaches trace creation with unchanged HTTP success', async () => {
-    vi.spyOn(db, 'getConnections').mockResolvedValue([{
-      id: 'connection_test',
-      tenant_id: tenantId,
-      platform: 'instagram',
-      account_id: accountId,
-      account_name: 'test_account',
-      access_token_encrypted: 'mock_access_token',
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as any]);
-    vi.spyOn(db, 'getKnowledgeBase').mockResolvedValue({} as any);
-    vi.spyOn(db, 'getMenu').mockResolvedValue([]);
-    vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
-      default_dm_reply: null,
-      static_dm_enabled: false,
-    } as any);
-    vi.spyOn(db, 'getConversations').mockResolvedValue([]);
-    vi.spyOn(db, 'createConversation').mockResolvedValue({
-      id: '22222222-2222-2222-2222-222222222222',
-      tenant_id: tenantId,
-      external_id: 'customer_123',
-      customer_id: 'customer_123',
-      human_takeover: false,
-      auto_reply_enabled: true,
-    } as any);
-    vi.spyOn(db, 'verifyConversationExists').mockResolvedValue(true);
-    vi.spyOn(db, 'addMessage').mockResolvedValue({ id: 'message_test' } as any);
-    vi.spyOn(db, 'getAISettings').mockResolvedValue({ ai_enabled: false, reply_to_dms: false } as any);
+    configureActiveTracePath();
 
     const response = await POST(request(validDm()));
 
@@ -105,6 +127,51 @@ describe('Instagram pre-trace ingress observability', () => {
     expect(vi.mocked(createTraceSession)).toHaveBeenCalledTimes(1);
     expect(logs.join('\n')).toContain('IG_WEBHOOK_POST_RECEIVED');
     expect(logs.join('\n')).toContain('IG_WEBHOOK_TRACE_CREATION_STARTED');
+  });
+
+  it('keeps a valid changes[] text DM on the trace-creation path', async () => {
+    configureActiveTracePath();
+
+    const response = await POST(request(validChangesDm()));
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(createTraceSession)).toHaveBeenCalledTimes(1);
+    expect(logs.join('\n')).toContain('IG_WEBHOOK_TRACE_CREATION_STARTED');
+  });
+
+  it('does not crash on the Meta Test-style payload', async () => {
+    const response = await POST(request(JSON.stringify({
+      object: 'instagram',
+      entry: [{
+        id: '0',
+        time: 1744813777,
+        changes: [{
+          field: 'messages',
+          value: {
+            sender: { id: '12334' },
+            recipient: { id: '23245' },
+            timestamp: '1527459824',
+            message: { mid: 'random_mid', text: 'random_text' },
+          },
+        }],
+      }],
+    })));
+
+    expect(response.status).toBe(403);
+    expect(logs.join('\n')).not.toContain('PAYLOAD_SHAPE_PARSE_FAILED');
+    expect(logs.join('\n')).not.toContain('IG_WEBHOOK_POST_FAILED');
+  });
+
+  it('records safe parser exception diagnostics when an unexpected error escapes', async () => {
+    vi.spyOn(db, 'getConnections').mockRejectedValue(new RangeError('Invalid time value'));
+
+    const response = await POST(request(validDm()));
+    const ingressLogs = logs.filter(log => log.includes('[IG-WEBHOOK]')).join('\n');
+
+    expect(response.status).toBe(500);
+    expect(ingressLogs).toContain('"error_name":"RangeError"');
+    expect(ingressLogs).toContain('"error_message":"Invalid time value"');
+    expect(ingressLogs).toContain('"top_stack_frame":"    at ');
   });
 
   it('logs SIGNATURE_INVALID before returning 401', async () => {

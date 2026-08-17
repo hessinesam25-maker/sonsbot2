@@ -4,6 +4,46 @@ import crypto from 'crypto';
 
 export type WebhookParseDiagnostic = (reasonCode: string) => void;
 
+type WebhookRecord = Record<string, any>;
+
+function isWebhookRecord(value: unknown): value is WebhookRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asWebhookId(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function normalizeWebhookTimestamp(
+  value: unknown,
+  unit: 'auto' | 'seconds' = 'auto',
+): { idempotencyValue: number | string; iso: string } | null {
+  const isMissing = value === undefined || value === null || value === '';
+  const numericValue = isMissing
+    ? Date.now()
+    : typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value)
+        : NaN;
+
+  if (!Number.isFinite(numericValue)) return null;
+
+  const timestampMs = unit === 'seconds' || (unit === 'auto' && Math.abs(numericValue) < 100_000_000_000)
+    ? numericValue * 1000
+    : numericValue;
+  const date = new Date(timestampMs);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return {
+    idempotencyValue: isMissing ? numericValue : (value as number | string),
+    iso: date.toISOString(),
+  };
+}
+
 function generateStableIdempotencyKey(
   prefix: 'ig_msg' | 'ig_cmt',
   senderId: string,
@@ -32,113 +72,156 @@ export class InstagramConnector implements PlatformConnector {
 
   parseWebhookPayload(body: any, onIgnored?: WebhookParseDiagnostic): WebhookEventPayload[] {
     const events: WebhookEventPayload[] = [];
-    if (!body || body.object !== 'instagram') {
+    if (!isWebhookRecord(body) || body.object !== 'instagram') {
       onIgnored?.('UNSUPPORTED_OBJECT');
       return events;
     }
 
-    const entries = body.entry || [];
+    if (body.entry === undefined || body.entry === null) {
+      onIgnored?.('UNSUPPORTED_EVENT');
+      return events;
+    }
+    if (!Array.isArray(body.entry)) {
+      onIgnored?.('INVALID_ENTRY_SHAPE');
+      return events;
+    }
+
+    const entries = body.entry;
     for (const entry of entries) {
+      if (!isWebhookRecord(entry)) {
+        onIgnored?.('INVALID_ENTRY_SHAPE');
+        continue;
+      }
+
       const entryEventStart = events.length;
-      const entryAccountId = entry.id ? String(entry.id) : undefined;
+      const entryAccountId = asWebhookId(entry.id);
 
       // 1. Direct Messages via entry.messaging
-      if (entry.messaging && Array.isArray(entry.messaging)) {
+      if (entry.messaging !== undefined && entry.messaging !== null && !Array.isArray(entry.messaging)) {
+        onIgnored?.('INVALID_MESSAGING_SHAPE');
+      } else if (Array.isArray(entry.messaging)) {
         for (const msg of entry.messaging) {
-          if (msg && msg.message && msg.message.text) {
-            const recipientId = msg.recipient?.id ? String(msg.recipient.id) : entryAccountId;
-            const senderId = String(msg.sender?.id || 'unknown');
-            const timestampMs = msg.timestamp || Date.now();
-            const explicitMid = msg.message.mid || msg.mid || msg.message_id;
-            const externalId = explicitMid && String(explicitMid) !== entryAccountId && String(explicitMid) !== senderId
-              ? String(explicitMid)
-              : generateStableIdempotencyKey('ig_msg', senderId, recipientId, timestampMs, msg.message.text);
-
-            events.push({
-              platform: 'instagram',
-              eventType: 'message',
-              externalId,
-              senderId,
-              senderName: msg.sender?.username || `IG_User_${senderId.slice(-4)}`,
-              recipientId,
-              content: msg.message.text,
-              timestamp: new Date(timestampMs).toISOString(),
-              rawPayload: msg,
-            });
-          } else {
+          if (!isWebhookRecord(msg) || !isWebhookRecord(msg.message) || typeof msg.message.text !== 'string' || !msg.message.text) {
             onIgnored?.('NON_TEXT_MESSAGE');
+            continue;
           }
+
+          const timestampValue = msg.timestamp === undefined ? Date.now() : msg.timestamp;
+          const timestamp = normalizeWebhookTimestamp(timestampValue);
+          if (!timestamp) {
+            onIgnored?.('INVALID_TIMESTAMP');
+            continue;
+          }
+
+          const recipientId = isWebhookRecord(msg.recipient) ? asWebhookId(msg.recipient.id) || entryAccountId : entryAccountId;
+          const senderId = isWebhookRecord(msg.sender) ? asWebhookId(msg.sender.id) || 'unknown' : 'unknown';
+          const explicitMid = asWebhookId(msg.message.mid) || asWebhookId(msg.mid) || asWebhookId(msg.message_id);
+          const externalId = explicitMid && String(explicitMid) !== entryAccountId && String(explicitMid) !== senderId
+            ? String(explicitMid)
+            : generateStableIdempotencyKey('ig_msg', senderId, recipientId, timestamp.idempotencyValue, msg.message.text);
+
+          events.push({
+            platform: 'instagram',
+            eventType: 'message',
+            externalId,
+            senderId,
+            senderName: isWebhookRecord(msg.sender) && typeof msg.sender.username === 'string' && msg.sender.username
+              ? msg.sender.username
+              : `IG_User_${senderId.slice(-4)}`,
+            recipientId,
+            content: msg.message.text,
+            timestamp: timestamp.iso,
+            rawPayload: msg,
+          });
         }
       }
 
       // 2. Changes array (comments or messages field changes)
-      if (entry.changes && Array.isArray(entry.changes)) {
+      if (entry.changes !== undefined && entry.changes !== null && !Array.isArray(entry.changes)) {
+        onIgnored?.('INVALID_CHANGES_SHAPE');
+      } else if (Array.isArray(entry.changes)) {
         for (const change of entry.changes) {
-          if (!change) {
-            onIgnored?.('UNSUPPORTED_EVENT');
+          if (!isWebhookRecord(change)) {
+            onIgnored?.('INVALID_CHANGE_SHAPE');
             continue;
           }
 
           // A. Comments
-          if (change.field === 'comments' && change.value) {
+          if (change.field === 'comments' && isWebhookRecord(change.value)) {
             const val = change.value;
-            const commentId = val.id || val.comment_id;
+            const commentId = asWebhookId(val.id) || asWebhookId(val.comment_id);
+            const timestampValue = val.created_time === undefined ? Date.now() : val.created_time;
+            const timestamp = normalizeWebhookTimestamp(timestampValue, 'seconds');
+            if (!timestamp) {
+              onIgnored?.('INVALID_TIMESTAMP');
+              continue;
+            }
+            const fromId = isWebhookRecord(val.from) ? asWebhookId(val.from.id) : undefined;
             const externalId = commentId && String(commentId) !== entryAccountId
               ? String(commentId)
-              : generateStableIdempotencyKey('ig_cmt', val.from?.id || 'unk', entryAccountId, val.created_time || Date.now(), val.text || '');
+              : generateStableIdempotencyKey('ig_cmt', fromId || 'unk', entryAccountId, timestamp.idempotencyValue, typeof val.text === 'string' ? val.text : '');
 
             events.push({
               platform: 'instagram',
               eventType: 'comment',
               externalId,
-              senderId: val.from ? String(val.from.id) : 'unknown',
-              senderName: val.from ? val.from.username : 'IG_Commenter',
+              senderId: fromId || 'unknown',
+              senderName: isWebhookRecord(val.from) && typeof val.from.username === 'string' && val.from.username
+                ? val.from.username
+                : 'IG_Commenter',
               recipientId: entryAccountId,
-              content: val.text || '',
-              mediaId: val.media ? String(val.media.id) : undefined,
-              timestamp: new Date(val.created_time ? val.created_time * 1000 : Date.now()).toISOString(),
+              content: typeof val.text === 'string' ? val.text : '',
+              mediaId: isWebhookRecord(val.media) ? asWebhookId(val.media.id) : undefined,
+              timestamp: timestamp.iso,
               rawPayload: val,
             });
           } else if (change.field === 'comments') {
-            onIgnored?.('UNSUPPORTED_EVENT');
+            onIgnored?.('INVALID_CHANGE_SHAPE');
           }
 
           // B. Messages field in changes
-          else if ((change.field === 'messages' || change.field === 'messaging') && change.value) {
+          else if (change.field === 'messages' || change.field === 'messaging') {
             const items = Array.isArray(change.value) ? change.value : [change.value];
             if (items.length === 0) onIgnored?.('UNSUPPORTED_EVENT');
             for (const item of items) {
-              if (!item) {
-                onIgnored?.('UNSUPPORTED_EVENT');
+              if (!isWebhookRecord(item)) {
+                onIgnored?.('INVALID_MESSAGE_SHAPE');
                 continue;
               }
-              const msgData = item.message || item;
-              if (msgData && msgData.text) {
-                const recipientId = item.recipient?.id ? String(item.recipient.id) : entryAccountId;
-                const senderId = String(item.sender?.id || 'unknown');
-                const timestampMs = item.timestamp || Date.now();
-                const explicitMid = msgData.mid || item.mid || msgData.message_id;
-                const externalId = explicitMid && String(explicitMid) !== entryAccountId && String(explicitMid) !== senderId
-                  ? String(explicitMid)
-                  : generateStableIdempotencyKey('ig_msg', senderId, recipientId, timestampMs, msgData.text);
-
-                events.push({
-                  platform: 'instagram',
-                  eventType: 'message',
-                  externalId,
-                  senderId,
-                  senderName: item.sender?.username || `IG_User_${senderId.slice(-4)}`,
-                  recipientId,
-                  content: msgData.text,
-                  timestamp: new Date(timestampMs).toISOString(),
-                  rawPayload: item,
-                });
-              } else {
+              const msgData = isWebhookRecord(item.message) ? item.message : item;
+              if (typeof msgData.text !== 'string' || !msgData.text) {
                 onIgnored?.('NON_TEXT_MESSAGE');
+                continue;
               }
+
+              const timestampValue = item.timestamp === undefined ? Date.now() : item.timestamp;
+              const timestamp = normalizeWebhookTimestamp(timestampValue);
+              if (!timestamp) {
+                onIgnored?.('INVALID_TIMESTAMP');
+                continue;
+              }
+
+              const recipientId = isWebhookRecord(item.recipient) ? asWebhookId(item.recipient.id) || entryAccountId : entryAccountId;
+              const senderId = isWebhookRecord(item.sender) ? asWebhookId(item.sender.id) || 'unknown' : 'unknown';
+              const explicitMid = asWebhookId(msgData.mid) || asWebhookId(item.mid) || asWebhookId(msgData.message_id);
+              const externalId = explicitMid && String(explicitMid) !== entryAccountId && String(explicitMid) !== senderId
+                ? String(explicitMid)
+                : generateStableIdempotencyKey('ig_msg', senderId, recipientId, timestamp.idempotencyValue, msgData.text);
+
+              events.push({
+                platform: 'instagram',
+                eventType: 'message',
+                externalId,
+                senderId,
+                senderName: isWebhookRecord(item.sender) && typeof item.sender.username === 'string' && item.sender.username
+                  ? item.sender.username
+                  : `IG_User_${senderId.slice(-4)}`,
+                recipientId,
+                content: msgData.text,
+                timestamp: timestamp.iso,
+                rawPayload: item,
+              });
             }
-          } else if (change.field === 'messages' || change.field === 'messaging') {
-            onIgnored?.('UNSUPPORTED_EVENT');
           } else {
             onIgnored?.('UNSUPPORTED_EVENT');
           }

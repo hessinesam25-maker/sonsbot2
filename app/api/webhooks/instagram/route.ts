@@ -26,6 +26,20 @@ function logInstagramIngress(event: string, details: Record<string, unknown> = {
   }));
 }
 
+function getSafeErrorDiagnostics(error: unknown): Record<string, string> {
+  const errorRecord = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  const errorName = typeof errorRecord.name === 'string' ? errorRecord.name : 'UnknownError';
+  const errorMessage = typeof errorRecord.message === 'string' ? errorRecord.message : 'Unknown error';
+  const stack = typeof errorRecord.stack === 'string' ? errorRecord.stack : '';
+  const topStackFrame = stack.split('\n').slice(1).find(line => line.trim().startsWith('at ')) || '';
+
+  return {
+    error_name: errorName.slice(0, 80),
+    error_message: errorMessage.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').slice(0, 200),
+    top_stack_frame: topStackFrame.replace(/[\r\n\t]+/g, ' ').slice(0, 300),
+  };
+}
+
 /**
  * GET Handler for Instagram Webhook verification challenge
  */
@@ -1146,6 +1160,7 @@ export async function POST(req: NextRequest) {
     logInstagramIngress('IG_WEBHOOK_POST_FAILED', {
       reason_code: 'WEBHOOK_PROCESSING_FAILED',
       error_type: error?.constructor?.name || 'UnknownError',
+      ...getSafeErrorDiagnostics(error),
     });
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
   }

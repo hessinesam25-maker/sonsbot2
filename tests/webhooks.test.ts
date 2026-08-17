@@ -210,6 +210,60 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       expect(events[0].content).toBe('Openingsuren Gent?');
     });
 
+    it('accepts Meta Test-style numeric string timestamps without throwing RangeError', () => {
+      const connector = new InstagramConnector(appSecret);
+      const reasons: string[] = [];
+      const payload = {
+        object: 'instagram',
+        entry: [{
+          id: '0',
+          time: 1744813777,
+          changes: [{
+            field: 'messages',
+            value: {
+              sender: { id: '12334' },
+              recipient: { id: '23245' },
+              timestamp: '1527459824',
+              message: { mid: 'random_mid', text: 'random_text' },
+            },
+          }],
+        }],
+      };
+
+      let events: ReturnType<InstagramConnector['parseWebhookPayload']> = [];
+      expect(() => {
+        events = connector.parseWebhookPayload(payload, reason => reasons.push(reason));
+      }).not.toThrow();
+
+      expect(events).toHaveLength(1);
+      expect(events[0].content).toBe('random_text');
+      expect(events[0].timestamp).toBe(new Date(1527459824 * 1000).toISOString());
+      expect(reasons).toEqual([]);
+    });
+
+    it('safely ignores malformed nested webhook shapes', () => {
+      const connector = new InstagramConnector(appSecret);
+      const reasons: string[] = [];
+      const payload = {
+        object: 'instagram',
+        entry: [
+          null,
+          { messaging: { sender: { id: 'customer_1' } } },
+          { changes: [null, { field: 'messages', value: [null, { message: { text: 'HI' }, timestamp: 'not-a-time' }] }] },
+          { messaging: [{ sender: null, message: { text: 'HI' }, timestamp: 1e30 }] },
+        ],
+      };
+
+      expect(() => connector.parseWebhookPayload(payload, reason => reasons.push(reason))).not.toThrow();
+      expect(reasons).toEqual(expect.arrayContaining([
+        'INVALID_ENTRY_SHAPE',
+        'INVALID_MESSAGING_SHAPE',
+        'INVALID_CHANGE_SHAPE',
+        'INVALID_MESSAGE_SHAPE',
+        'INVALID_TIMESTAMP',
+      ]));
+    });
+
     it('safely returns empty events array on malformed or non-instagram payload', () => {
       const connector = new InstagramConnector(appSecret);
       expect(connector.parseWebhookPayload(null)).toEqual([]);
