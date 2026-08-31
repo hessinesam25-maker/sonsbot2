@@ -13,9 +13,43 @@ import { createTraceSession, updateTraceSession } from '@/lib/ai/trace';
 
 const connector = new InstagramConnector();
 
-function getSha256First8(val: string | null | undefined): string | null {
+function getSha256First8(val: string | Buffer | null | undefined): string | null {
   if (!val) return null;
   return crypto.createHash('sha256').update(val).digest('hex').slice(0, 8);
+}
+
+function getInvalidSignaturePayloadDiagnostics(rawBodyText: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(rawBodyText) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {
+        webhook_object_type: 'unknown',
+        entry_count: 0,
+        first_entry_account_id_hash: null,
+      };
+    }
+
+    const payload = parsed as Record<string, unknown>;
+    const entries = Array.isArray(payload.entry) ? payload.entry : [];
+    const firstEntry = entries[0];
+    const firstEntryRecord = firstEntry && typeof firstEntry === 'object' && !Array.isArray(firstEntry)
+      ? firstEntry as Record<string, unknown>
+      : null;
+    const accountId = firstEntryRecord?.id;
+    const normalizedAccountId = typeof accountId === 'string' && accountId.length > 0
+      ? accountId
+      : typeof accountId === 'number' && Number.isFinite(accountId)
+        ? String(accountId)
+        : null;
+
+    return {
+      webhook_object_type: typeof payload.object === 'string' ? payload.object.slice(0, 80) : 'unknown',
+      entry_count: entries.length,
+      first_entry_account_id_hash: getSha256First8(normalizedAccountId),
+    };
+  } catch {
+    return {};
+  }
 }
 
 function logInstagramIngress(event: string, details: Record<string, unknown> = {}) {
@@ -134,17 +168,30 @@ export async function POST(req: NextRequest) {
     const signature = req.headers.get('x-hub-signature-256');
 
     // 1. Validate HMAC signature in production or whenever INSTAGRAM_APP_SECRET is set
-    const appSecret = process.env.INSTAGRAM_APP_SECRET;
-    logInstagramIngress('IG_WEBHOOK_SIGNATURE_CHECK_STARTED', {
-      signature_required: Boolean(appSecret || process.env.NODE_ENV === 'production'),
+    const appSecret = process.env.INSTAGRAM_APP_SECRET || '';
+    const signatureFormatValid = typeof signature === 'string' && /^sha256=[0-9a-f]{64}$/i.test(signature);
+    const rawBufferSignatureValid = verifyMetaSignature(rawBodyBuffer, signature, appSecret);
+    const legacyTextSignatureValid = verifyMetaSignature(rawBodyText, signature, appSecret);
+    const signatureDiagnostics = {
+      app_secret_present: Boolean(appSecret),
+      app_secret_length: appSecret.length,
+      app_secret_sha256_first8: getSha256First8(appSecret),
+      raw_body_length: rawBodyBuffer.length,
+      raw_body_sha256_first8: getSha256First8(rawBodyBuffer),
       signature_present: Boolean(signature),
+      signature_format_valid: signatureFormatValid,
+      raw_buffer_signature_valid: rawBufferSignatureValid,
+      legacy_text_signature_valid: legacyTextSignatureValid,
+    };
+    logInstagramIngress('IG_WEBHOOK_SIGNATURE_CHECK_STARTED', {
+      ...signatureDiagnostics,
     });
     if (appSecret || process.env.NODE_ENV === 'production') {
-      const textIsValid = connector.verifySignature(rawBodyText, signature);
-      if (!textIsValid) {
+      if (!rawBufferSignatureValid) {
         logInstagramIngress('IG_WEBHOOK_SIGNATURE_REJECTED', {
           reason_code: 'SIGNATURE_INVALID',
-          signature_present: Boolean(signature),
+          ...signatureDiagnostics,
+          ...getInvalidSignaturePayloadDiagnostics(rawBodyText),
         });
         await db.addAuditLog({
           event_type: 'WEBHOOK_INVALID_SIGNATURE',

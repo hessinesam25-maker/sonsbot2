@@ -1308,7 +1308,7 @@ describe('Meta Webhooks & Signature Validation Test Suite', () => {
       };
 
       vi.spyOn(db, 'getConversations').mockResolvedValue([legacyConv as any]);
-      const updateConvSpy = vi.spyOn(db, 'updateConversation');
+      const updateConvSpy = vi.spyOn(db, 'updateConversation').mockResolvedValue(true as any);
 
       const payloadA = {
         object: 'instagram',
