@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { db } from '../lib/db/store';
+import * as aiEngine from '../lib/ai/engine';
+import * as encryption from '../lib/security/encryption';
+import { InstagramConnector } from '../lib/connectors/instagram';
 
 vi.mock('../lib/ai/trace', () => ({
   createTraceSession: vi.fn(async () => ({ trace_id: 'trace_test' })),
@@ -77,17 +80,21 @@ function validChangesDm(text: string = 'HI') {
 }
 
 function configureActiveTracePath(activeAccountId: string = accountId) {
-  vi.spyOn(db, 'getConnections').mockResolvedValue([{
-    id: 'connection_test',
-    tenant_id: tenantId,
+  configureActiveTracePathForConnections([{ accountId: activeAccountId, tenantId }]);
+}
+
+function configureActiveTracePathForConnections(connectionSpecs: Array<{ accountId: string; tenantId: string }>) {
+  vi.spyOn(db, 'getConnections').mockResolvedValue(connectionSpecs.map((connection, index) => ({
+    id: `connection_test_${index}`,
+    tenant_id: connection.tenantId,
     platform: 'instagram',
-    account_id: activeAccountId,
+    account_id: connection.accountId,
     account_name: 'test_account',
     access_token_encrypted: 'mock_access_token',
     is_active: true,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  } as any]);
+  })) as any);
   vi.spyOn(db, 'getKnowledgeBase').mockResolvedValue({} as any);
   vi.spyOn(db, 'getMenu').mockResolvedValue([]);
   vi.spyOn(db, 'getAutomationRules').mockResolvedValue({
@@ -353,6 +360,57 @@ describe('Instagram pre-trace ingress observability', () => {
     expect(response.status).toBe(403);
     expect(logs.join('\n')).toContain('TENANT_NOT_FOUND');
     expect(vi.mocked(createTraceSession)).not.toHaveBeenCalled();
+  });
+
+  it('selects the tenant only when the webhook recipient account exactly matches', async () => {
+    const otherTenantId = '22222222-2222-2222-2222-222222222222';
+    configureActiveTracePathForConnections([
+      { accountId: '17841499999999999', tenantId: otherTenantId },
+      { accountId, tenantId },
+    ]);
+
+    const response = await POST(request(validDm('EXACT_ACCOUNT')));
+    const eventDiagnostic = logs.find(log => log.includes('[WEBHOOK_EVENT_DIAGNOSTIC]') && log.includes('"connection_found":true'));
+
+    expect(response.status).toBe(200);
+    expect(eventDiagnostic).toContain('"connection_found":true');
+    expect(vi.mocked(db.createConversation)).toHaveBeenCalled();
+    expect(vi.mocked(createTraceSession)).toHaveBeenCalledWith(expect.objectContaining({ tenantId }));
+  });
+
+  it('does not fall back to one unrelated active Instagram connection', async () => {
+    configureActiveTracePath('17841499999999999');
+    const decryptSpy = vi.spyOn(encryption, 'decryptToken');
+    const aiSpy = vi.spyOn(aiEngine, 'generateAIReply');
+    const sendSpy = vi.spyOn(InstagramConnector.prototype, 'sendDirectMessage');
+
+    const response = await POST(request(validDm('UNMATCHED_SINGLE', accountId)));
+    const eventDiagnostic = logs.find(log => log.includes('[WEBHOOK_EVENT_DIAGNOSTIC]'));
+
+    expect(response.status).toBe(200);
+    expect(eventDiagnostic).toContain('"connection_found":false');
+    expect(eventDiagnostic).toContain('"conversation_created":false');
+    expect(eventDiagnostic).toContain('"message_inserted":false');
+    expect(vi.mocked(db.createConversation)).not.toHaveBeenCalled();
+    expect(vi.mocked(db.addMessage)).not.toHaveBeenCalled();
+    expect(decryptSpy).not.toHaveBeenCalled();
+    expect(aiSpy).not.toHaveBeenCalled();
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not select any tenant when multiple active connections lack an exact match', async () => {
+    configureActiveTracePathForConnections([
+      { accountId: '17841499999999999', tenantId },
+      { accountId: '17841488888888888', tenantId: '22222222-2222-2222-2222-222222222222' },
+    ]);
+
+    const response = await POST(request(validDm('UNMATCHED_MULTIPLE', accountId)));
+    const eventDiagnostic = logs.find(log => log.includes('[WEBHOOK_EVENT_DIAGNOSTIC]'));
+
+    expect(response.status).toBe(200);
+    expect(eventDiagnostic).toContain('"connection_found":false');
+    expect(vi.mocked(db.createConversation)).not.toHaveBeenCalled();
+    expect(vi.mocked(db.addMessage)).not.toHaveBeenCalled();
   });
 
   it('does not put raw payload, customer text, or secrets in ingress logs', async () => {

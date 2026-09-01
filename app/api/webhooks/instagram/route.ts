@@ -296,9 +296,10 @@ export async function POST(req: NextRequest) {
       const traceId = crypto.randomUUID();
       const recipientAccountId = event.recipientId || event.rawPayload?.recipient?.id || event.rawPayload?.media?.owner?.id;
 
-      // Find exact tenant connection matching account_id, or default to igConnections[0] if single connection exists
-      const targetConn = (recipientAccountId ? igConnections.find(c => c.account_id === recipientAccountId) : undefined) ||
-        (igConnections.length === 1 ? igConnections[0] : undefined);
+      // Tenant resolution is strictly bound to the webhook recipient account ID.
+      const targetConn = recipientAccountId
+        ? igConnections.find(c => c.account_id === recipientAccountId)
+        : undefined;
 
       const resolvedTenantId = targetConn?.tenant_id || DEFAULT_TENANT_ID;
 
