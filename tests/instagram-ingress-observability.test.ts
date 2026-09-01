@@ -22,7 +22,9 @@ import { createTraceSession } from '../lib/ai/trace';
 
 const tenantId = '11111111-1111-1111-1111-111111111111';
 const accountId = '17841400011111111';
+const diagnosticAccountId = '17841432799131684';
 const originalAppSecret = process.env.INSTAGRAM_APP_SECRET;
+const originalSignatureDiagnosticBypass = process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS;
 
 function request(body: string, headers: Record<string, string> = {}) {
   return new NextRequest('http://localhost:3000/api/webhooks/instagram', {
@@ -41,14 +43,14 @@ function signedRequest(rawBody: Buffer, secret: string, signature?: string) {
   });
 }
 
-function validDm(text: string = 'HI') {
+function validDm(text: string = 'HI', webhookAccountId: string = accountId) {
   return JSON.stringify({
     object: 'instagram',
     entry: [{
-      id: accountId,
+      id: webhookAccountId,
       messaging: [{
         sender: { id: 'customer_123' },
-        recipient: { id: accountId },
+        recipient: { id: webhookAccountId },
         timestamp: Date.now(),
         message: { mid: 'mid_observability_1', text },
       }],
@@ -74,12 +76,12 @@ function validChangesDm(text: string = 'HI') {
   });
 }
 
-function configureActiveTracePath() {
+function configureActiveTracePath(activeAccountId: string = accountId) {
   vi.spyOn(db, 'getConnections').mockResolvedValue([{
     id: 'connection_test',
     tenant_id: tenantId,
     platform: 'instagram',
-    account_id: accountId,
+    account_id: activeAccountId,
     account_name: 'test_account',
     access_token_encrypted: 'mock_access_token',
     is_active: true,
@@ -111,6 +113,7 @@ describe('Instagram pre-trace ingress observability', () => {
 
   beforeEach(() => {
     delete process.env.INSTAGRAM_APP_SECRET;
+    delete process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS;
     logs = [];
 
     vi.spyOn(console, 'info').mockImplementation((...args) => logs.push(args.map(String).join(' ')));
@@ -126,6 +129,8 @@ describe('Instagram pre-trace ingress observability', () => {
     vi.restoreAllMocks();
     if (originalAppSecret === undefined) delete process.env.INSTAGRAM_APP_SECRET;
     else process.env.INSTAGRAM_APP_SECRET = originalAppSecret;
+    if (originalSignatureDiagnosticBypass === undefined) delete process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS;
+    else process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS = originalSignatureDiagnosticBypass;
   });
 
   it('logs receipt and proves a valid text DM reaches trace creation with unchanged HTTP success', async () => {
@@ -193,6 +198,59 @@ describe('Instagram pre-trace ingress observability', () => {
     expect(logs.join('\n')).toContain('SIGNATURE_INVALID');
     expect(logs.join('\n')).not.toContain('test_app_secret');
     expect(vi.mocked(createTraceSession)).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid signature when the diagnostic bypass is disabled', async () => {
+    process.env.INSTAGRAM_APP_SECRET = 'diagnostic_off_secret';
+    process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS = 'false';
+
+    const response = await POST(request(validDm('BYPASS_OFF'), { 'x-hub-signature-256': `sha256=${'0'.repeat(64)}` }));
+
+    expect(response.status).toBe(401);
+    expect(vi.mocked(createTraceSession)).not.toHaveBeenCalled();
+  });
+
+  it('continues only for the verified diagnostic account when bypass is enabled', async () => {
+    configureActiveTracePath(diagnosticAccountId);
+    const secret = 'diagnostic_on_secret';
+    process.env.INSTAGRAM_APP_SECRET = secret;
+    process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS = 'true';
+    const rawBody = Buffer.from(validDm('BYPASS_ON', diagnosticAccountId), 'utf8');
+
+    const response = await POST(signedRequest(rawBody, secret, `sha256=${'0'.repeat(64)}`));
+    const ingressLogs = logs.filter(log => log.includes('[IG-WEBHOOK]')).join('\n');
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(createTraceSession)).toHaveBeenCalledTimes(1);
+    expect(ingressLogs).toContain('IG_WEBHOOK_SIGNATURE_DIAGNOSTIC_BYPASS');
+    expect(ingressLogs).toContain('"signature_present":true');
+    expect(ingressLogs).toContain('"signature_valid":false');
+    expect(ingressLogs).toContain('"bypass_enabled":true');
+    expect(ingressLogs).not.toContain(diagnosticAccountId);
+  });
+
+  it('rejects every other account even when the diagnostic bypass is enabled', async () => {
+    process.env.INSTAGRAM_APP_SECRET = 'diagnostic_other_account_secret';
+    process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS = 'true';
+    const rawBody = Buffer.from(validDm('OTHER_ACCOUNT', `${diagnosticAccountId}5`), 'utf8');
+
+    const response = await POST(signedRequest(rawBody, process.env.INSTAGRAM_APP_SECRET, `sha256=${'0'.repeat(64)}`));
+
+    expect(response.status).toBe(401);
+    expect(vi.mocked(createTraceSession)).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('accepts a valid signature with diagnostic bypass=%s', async (bypassEnabled) => {
+    configureActiveTracePath();
+    const secret = 'valid_signature_bypass_secret';
+    process.env.INSTAGRAM_APP_SECRET = secret;
+    process.env.INSTAGRAM_SIGNATURE_DIAGNOSTIC_BYPASS = String(bypassEnabled);
+    const rawBody = Buffer.from(validDm(`VALID_BYPASS_${bypassEnabled}`), 'utf8');
+
+    const response = await POST(signedRequest(rawBody, secret));
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(createTraceSession)).toHaveBeenCalledTimes(1);
   });
 
   it('accepts the exact raw Buffer with the request-time secret', async () => {
