@@ -5,8 +5,59 @@ import { getBackendSupabaseClient } from '@/lib/db/client';
 
 export const dynamic = 'force-dynamic';
 
+const DEFAULT_PUBLIC_APP_URL = 'https://elsons.site';
+
+function getPublicAppOrigin(): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_APP_URL || DEFAULT_PUBLIC_APP_URL;
+
+  try {
+    const parsedUrl = new URL(configuredUrl);
+    const internalHostnames = new Set(['0.0.0.0', 'localhost', '127.0.0.1', '::1', 'unix']);
+    const isIpv4Address = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(parsedUrl.hostname);
+    const isUnixSocketHostname = parsedUrl.hostname.endsWith('.sock');
+
+    if (
+      !['http:', 'https:'].includes(parsedUrl.protocol)
+      || internalHostnames.has(parsedUrl.hostname)
+      || isIpv4Address
+      || isUnixSocketHostname
+    ) {
+      return DEFAULT_PUBLIC_APP_URL;
+    }
+
+    return parsedUrl.origin;
+  } catch {
+    return DEFAULT_PUBLIC_APP_URL;
+  }
+}
+
+function getSafeMetaErrorField(value: unknown): string | number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') return value.replace(/[\r\n\t]+/g, ' ').slice(0, 300);
+  return null;
+}
+
+function getTokenExchangeErrorDiagnostics(tokenData: unknown, httpStatus: number) {
+  const responseRecord = tokenData && typeof tokenData === 'object' && !Array.isArray(tokenData)
+    ? tokenData as Record<string, unknown>
+    : {};
+  const nestedError = responseRecord.error && typeof responseRecord.error === 'object' && !Array.isArray(responseRecord.error)
+    ? responseRecord.error as Record<string, unknown>
+    : {};
+
+  return {
+    http_status: httpStatus,
+    meta_error_type: getSafeMetaErrorField(nestedError.type ?? responseRecord.error_type ?? responseRecord.type),
+    meta_error_code: getSafeMetaErrorField(nestedError.code ?? responseRecord.code),
+    meta_error_subcode: getSafeMetaErrorField(nestedError.error_subcode ?? nestedError.subcode ?? responseRecord.error_subcode ?? responseRecord.subcode),
+    meta_error_message: getSafeMetaErrorField(nestedError.message ?? responseRecord.error_message ?? responseRecord.message),
+  };
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
+  const publicAppOrigin = getPublicAppOrigin();
+  const redirectTo = (path: string) => NextResponse.redirect(new URL(path, publicAppOrigin));
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const error = searchParams.get('error');
@@ -16,12 +67,12 @@ export async function GET(req: NextRequest) {
   if (error || errorReason || errorDescription) {
     const errorCode = error === 'access_denied' ? 'oauth_cancelled' : 'oauth_denied';
     console.warn(JSON.stringify({ stage: 'authorization_check', error_code: errorCode }));
-    return NextResponse.redirect(new URL(`/dashboard/integrations?error=${errorCode}`, req.url));
+    return redirectTo(`/dashboard/integrations?error=${errorCode}`);
   }
 
   if (!code || !state) {
     console.warn(JSON.stringify({ stage: 'parameter_check', error_code: 'missing_code_or_state' }));
-    return NextResponse.redirect(new URL('/dashboard/integrations?error=missing_code_or_state', req.url));
+    return redirectTo('/dashboard/integrations?error=missing_code_or_state');
   }
 
   try {
@@ -38,7 +89,7 @@ export async function GET(req: NextRequest) {
 
     if (stateErr || !consumedState) {
       console.error(JSON.stringify({ stage: 'state_validation', error_code: 'invalid_state' }));
-      return NextResponse.redirect(new URL('/dashboard/integrations?error=invalid_state', req.url));
+      return redirectTo('/dashboard/integrations?error=invalid_state');
     }
 
     const tenantId = consumedState.tenant_id;
@@ -52,7 +103,7 @@ export async function GET(req: NextRequest) {
 
     const appId = process.env.INSTAGRAM_APP_ID;
     const appSecret = process.env.INSTAGRAM_APP_SECRET;
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = publicAppOrigin;
     const redirectUri = process.env.INSTAGRAM_OAUTH_REDIRECT_URI || `${baseUrl}/api/auth/instagram/callback`;
 
     let accessToken = 'token_ig_auth_' + Date.now();
@@ -80,8 +131,13 @@ export async function GET(req: NextRequest) {
       const tokenData = await tokenRes.json();
 
       if (!tokenRes.ok || !tokenData.access_token) {
-        console.error(JSON.stringify({ stage: 'short_lived_token_exchange', tenant_id: tenantId, error_code: 'token_exchange_failed' }));
-        return NextResponse.redirect(new URL(`/dashboard/integrations?tenant_id=${tenantId}&error=token_exchange_failed`, req.url));
+        console.error(JSON.stringify({
+          stage: 'short_lived_token_exchange',
+          tenant_id: tenantId,
+          ...getTokenExchangeErrorDiagnostics(tokenData, tokenRes.status),
+          error_code: 'token_exchange_failed',
+        }));
+        return redirectTo(`/dashboard/integrations?tenant_id=${tenantId}&error=token_exchange_failed`);
       }
 
       console.log(JSON.stringify({ stage: 'short_lived_token_exchange', tenant_id: tenantId, status: 'success' }));
@@ -151,9 +207,7 @@ export async function GET(req: NextRequest) {
       }));
 
       const encodedTenantName = encodeURIComponent(conflictingName);
-      return NextResponse.redirect(
-        new URL(`/dashboard/integrations?error=already_linked&conflict_tenant=${encodedTenantName}`, req.url)
-      );
+      return redirectTo(`/dashboard/integrations?error=already_linked&conflict_tenant=${encodedTenantName}`);
     }
 
     // 4. INVARIANT CHECK B: Verify target tenant does NOT already have a DIFFERENT active Instagram account
@@ -175,9 +229,7 @@ export async function GET(req: NextRequest) {
         status: 'blocked_tenant_already_has_account'
       }));
 
-      return NextResponse.redirect(
-        new URL('/dashboard/integrations?error=tenant_already_has_account', req.url)
-      );
+      return redirectTo('/dashboard/integrations?error=tenant_already_has_account');
     }
 
     // 5. Encrypt access token using AES-256-GCM before database storage
@@ -203,7 +255,7 @@ export async function GET(req: NextRequest) {
 
     if (upsertErr) {
       console.error(JSON.stringify({ stage: 'database_upsert', tenant_id: tenantId, error_code: 'db_upsert_failed' }));
-      return NextResponse.redirect(new URL(`/dashboard/integrations?tenant_id=${tenantId}&error=db_upsert_failed`, req.url));
+      return redirectTo(`/dashboard/integrations?tenant_id=${tenantId}&error=db_upsert_failed`);
     }
 
     const connectionId = upsertedConn?.id || 'unknown';
@@ -225,9 +277,9 @@ export async function GET(req: NextRequest) {
 
     console.log(JSON.stringify({ stage: 'callback_completed', tenant_id: tenantId, connection_id: connectionId, status: 'success' }));
 
-    return NextResponse.redirect(new URL(`/dashboard/clients/${tenantId}?success=instagram_connected`, req.url));
+    return redirectTo(`/dashboard/clients/${tenantId}?success=instagram_connected`);
   } catch (err: any) {
     console.error(JSON.stringify({ stage: 'callback_unhandled', error_code: 'oauth_failed' }));
-    return NextResponse.redirect(new URL('/dashboard/integrations?error=oauth_failed', req.url));
+    return redirectTo('/dashboard/integrations?error=oauth_failed');
   }
 }
